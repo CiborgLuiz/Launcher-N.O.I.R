@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NOIR Launcher",
+  "version": "0.2.0",
+  "identifier": "com.noir.launcher",
+  "build": {
+    "beforeDevCommand": "npm run dev:ui",
+    "beforeBuildCommand": "npm run build:desktop",
+    "frontendDist": "../../dist/apps/desktop",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NOIR Launcher",
+        "width": 1480,
+        "height": 940,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb", "msi"],
+    "icon": []
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "types": ["vite/client"],
+    "paths": {
+      "@noir-app/*": ["apps/desktop/src/*"],
+      "@noir-ui/*": ["packages/ui/src/*"],
+      "@noir-shared/*": ["packages/shared/src/*"]
+    }
+  },
+  "include": [
+    "apps/desktop/src/**/*",
+    "packages/ui/src/**/*",
+    "packages/shared/src/**/*",
+    "apps/desktop/vite.config.ts"
+  ]
+}

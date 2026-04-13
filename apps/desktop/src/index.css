@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --noir-background: #090806;
+  --noir-surface: #14110c;
+  --noir-text: #f6f0e1;
+  --noir-muted: #a58e63;
+  --noir-gold: #c7a24a;
+  --noir-brass: #8e6a22;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  color: var(--noir-text);
+  background:
+    radial-gradient(circle at top, rgba(199, 162, 74, 0.12), transparent 28%),
+    linear-gradient(180deg, #0d0b08 0%, #090806 45%, #050402 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag,
+button,
+input,
+textarea,
+select {
+  -webkit-app-region: no-drag;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(199, 162, 74, 0.24);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
