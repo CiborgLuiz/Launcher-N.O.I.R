@@ -88,12 +88,16 @@ export function createOfflineAccount(username: string): StoredAccount {
 
 export function createMicrosoftAccountRecord(input: {
   id?: string;
+  createdAt?: string;
   username: string;
   uuid: string;
   accessToken: string;
+  clientToken?: string;
   accessTokenExpiresAt?: string;
   avatarUrl?: string;
   refreshTokenKey: string;
+  xuid?: string;
+  isDemo?: boolean;
   lastValidatedAt?: string;
 }): StoredMicrosoftAccount {
   return {
@@ -102,11 +106,14 @@ export function createMicrosoftAccountRecord(input: {
     username: input.username,
     uuid: input.uuid,
     accessToken: input.accessToken,
+    clientToken: input.clientToken,
     accessTokenExpiresAt: input.accessTokenExpiresAt,
-    avatarUrl: `https://crafatar.com/avatars/${encodeURIComponent(input.uuid)}?size=128&overlay`,
+    avatarUrl: input.avatarUrl || `https://crafatar.com/avatars/${encodeURIComponent(input.uuid)}?size=128&overlay`,
     refreshTokenKey: input.refreshTokenKey,
+    xuid: input.xuid,
+    isDemo: input.isDemo,
     lastValidatedAt: input.lastValidatedAt,
-    createdAt: new Date().toISOString()
+    createdAt: input.createdAt || new Date().toISOString()
   };
 }
 

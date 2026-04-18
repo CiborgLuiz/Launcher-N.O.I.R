@@ -1,248 +1,333 @@
-const fetch = (...args: Parameters<typeof import("node-fetch")["default"]>) =>
-  import("node-fetch").then((module) => module.default(...args));
 import crypto from "node:crypto";
-import { findStoredAccount, upsertStoredAccount, createMicrosoftAccountRecord, createRefreshTokenKey, SecretVault } from "./accounts";
+import { Auth, lexicon } from "msmc";
+import {
+  createMicrosoftAccountRecord,
+  createRefreshTokenKey,
+  findStoredAccount,
+  SecretVault,
+  upsertStoredAccount
+} from "./accounts";
 import { StoredMicrosoftAccount } from "../../shared/src";
 
-const SCOPE = "XboxLive.signin offline_access openid profile email";
+const DEFAULT_PROMPT = "select_account";
+const DEFAULT_ELECTRON_WINDOW = {
+  width: 500,
+  height: 650,
+  resizable: false,
+  autoHideMenuBar: true,
+  title: "Entrar com Microsoft"
+} as const;
 
-function getClientId(): string {
+type ResponseLike = {
+  status?: number;
+  text(): Promise<string>;
+};
+
+type MsmcLaunchAuthorization = {
+  access_token: string;
+  client_token?: string;
+  uuid: string;
+  name?: string;
+  meta?: {
+    type: "msa" | "mojang" | "legacy";
+    exp?: number;
+    refresh?: string;
+    xuid?: string;
+    demo?: boolean;
+  };
+  user_properties?: Record<string, unknown>;
+};
+
+type MsmcMinecraftToken = {
+  exp?: number;
+  profile?: {
+    id: string;
+    name: string;
+    demo?: boolean;
+    skins?: Array<{ url: string }>;
+  };
+  parent?: {
+    msToken?: {
+      refresh_token?: string;
+    };
+  };
+  mclc(refreshable?: boolean): MsmcLaunchAuthorization;
+};
+
+type MsmcWrappedError = {
+  ts?: string;
+  response?: ResponseLike;
+};
+
+function getMicrosoftClientId(): string | undefined {
   const clientId = process.env.MICROSOFT_CLIENT_ID?.trim();
-  if (!clientId) {
-    throw new Error("MICROSOFT_CLIENT_ID nao configurado");
-  }
-  return clientId;
+  return clientId || undefined;
 }
 
-function normalizeMicrosoftServiceError(prefix: string, rawText: string): Error {
-  if (/Invalid app registration/i.test(rawText)) {
-    return new Error(
-      "App registration Microsoft invalido. Atualize o MICROSOFT_CLIENT_ID no .env com um app seu do Microsoft Entra, com Public Client Flow habilitado e redirect URI local configurado."
-    );
+function hasCustomMicrosoftClientId(): boolean {
+  return Boolean(getMicrosoftClientId());
+}
+
+function trimErrorDetails(rawText: string): string | undefined {
+  const text = rawText.replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, 320) : undefined;
+}
+
+async function readResponseDetails(response?: ResponseLike): Promise<string | undefined> {
+  if (!response) {
+    return undefined;
   }
-  return new Error(`${prefix}: ${rawText}`);
+
+  try {
+    return trimErrorDetails(await response.text());
+  } catch {
+    return undefined;
+  }
+}
+
+function translateMicrosoftCode(code: string, details?: string): string {
+  if (details && /(redirect_uri|invalid client|invalid_client|unauthorized_client|client_id|app registration)/i.test(details)) {
+    return "Configuracao Microsoft invalida. Revise MICROSOFT_CLIENT_ID e MS_REDIRECT_URI";
+  }
+
+  switch (code) {
+    case "error.auth.microsoft":
+      return "Falha no login Microsoft";
+    case "error.auth.xboxLive":
+      return "Falha ao autenticar com Xbox Live";
+    case "error.auth.xsts.userNotFound":
+      return "A conta Microsoft nao possui um perfil Xbox configurado";
+    case "error.auth.xsts.bannedCountry":
+      return "A conta Microsoft pertence a uma regiao sem suporte do Xbox Live";
+    case "error.auth.xsts.child":
+    case "error.auth.xsts.child.SK":
+      return "A conta Microsoft exige aprovacao familiar no Xbox antes do login";
+    case "error.auth.minecraft.login":
+      return "Falha ao autenticar com Minecraft Services";
+    case "error.auth.minecraft.profile":
+      return "A conta Microsoft nao possui Minecraft Java ou o perfil nao pode ser carregado";
+    case "error.auth.minecraft.entitlements":
+      return "Falha ao validar a licenca do Minecraft Java";
+    case "error.gui.closed":
+      return "Login Microsoft cancelado pelo usuario";
+    default: {
+      const fallback = lexicon.getCode(code as never);
+      return typeof fallback === "string" && fallback !== code ? fallback : "Falha ao autenticar conta Microsoft";
+    }
+  }
+}
+
+async function normalizeMicrosoftError(error: unknown, fallbackMessage: string): Promise<Error> {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  if (typeof error === "string") {
+    return new Error(translateMicrosoftCode(error));
+  }
+
+  if (error && typeof error === "object") {
+    const wrapped = error as MsmcWrappedError;
+    if (wrapped.ts) {
+      const details = await readResponseDetails(wrapped.response);
+      const message = translateMicrosoftCode(wrapped.ts, details);
+      return new Error(details ? `${message}: ${details}` : message);
+    }
+  }
+
+  return new Error(fallbackMessage);
+}
+
+function isInvalidAppRegistrationMessage(message?: string): boolean {
+  return Boolean(message && /(invalid app registration|invalid client|unauthorized_client|invalid_client|client_id|redirect_uri)/i.test(message));
+}
+
+async function shouldRetryWithDefaultMicrosoftAuth(error: unknown): Promise<boolean> {
+  if (!hasCustomMicrosoftClientId()) {
+    return false;
+  }
+
+  if (error instanceof Error) {
+    return isInvalidAppRegistrationMessage(error.message);
+  }
+
+  if (typeof error === "string") {
+    return isInvalidAppRegistrationMessage(error);
+  }
+
+  if (error && typeof error === "object") {
+    const wrapped = error as MsmcWrappedError;
+    if (wrapped.ts && isInvalidAppRegistrationMessage(wrapped.ts)) {
+      return true;
+    }
+    const details = await readResponseDetails(wrapped.response);
+    return isInvalidAppRegistrationMessage(details);
+  }
+
+  return false;
+}
+
+function toIsoDate(timestamp?: number): string | undefined {
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+    return undefined;
+  }
+  return new Date(timestamp).toISOString();
+}
+
+function createAvatarUrl(uuid: string): string {
+  return `https://crafatar.com/avatars/${encodeURIComponent(uuid)}?size=128&overlay`;
 }
 
 export function getMicrosoftRedirectUri(): string {
-  return (
-    process.env.MS_REDIRECT_URI ||
-    `http://${process.env.MS_REDIRECT_HOST || "127.0.0.1"}:${process.env.MS_REDIRECT_PORT || "53682"}/callback`
-  );
-}
-
-function toBase64Url(buffer: Buffer): string {
-  return buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-export function createPkcePair(): { verifier: string; challenge: string } {
-  const verifier = toBase64Url(crypto.randomBytes(32));
-  const challenge = toBase64Url(crypto.createHash("sha256").update(verifier).digest());
-  return { verifier, challenge };
-}
-
-export function buildMicrosoftAuthUrl(redirectUri: string, codeChallenge: string): string {
-  const params = new URLSearchParams({
-    client_id: getClientId(),
-    response_type: "code",
-    redirect_uri: redirectUri,
-    response_mode: "query",
-    scope: SCOPE,
-    prompt: "select_account",
-    code_challenge_method: "S256",
-    code_challenge: codeChallenge
-  });
-
-  return `https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?${params.toString()}`;
-}
-
-type MicrosoftOAuthTokens = {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-};
-
-async function requestMicrosoftToken(body: URLSearchParams): Promise<MicrosoftOAuthTokens> {
-  const response = await fetch("https://login.microsoftonline.com/consumers/oauth2/v2.0/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Falha no OAuth Microsoft: ${text}`);
+  const explicitRedirect = process.env.MS_REDIRECT_URI?.trim();
+  if (explicitRedirect) {
+    return explicitRedirect;
   }
-  return (await response.json()) as MicrosoftOAuthTokens;
+
+  const host = process.env.MS_REDIRECT_HOST?.trim() || "127.0.0.1";
+  const port = process.env.MS_REDIRECT_PORT?.trim() || "53682";
+  return `http://${host}:${port}/callback`;
 }
 
-export async function exchangeCodeForTokens(code: string, verifier: string, redirectUri: string): Promise<MicrosoftOAuthTokens> {
-  const body = new URLSearchParams({
-    client_id: getClientId(),
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: redirectUri,
-    code_verifier: verifier,
-    scope: SCOPE
-  });
-  return requestMicrosoftToken(body);
+export function createDefaultMicrosoftAuthManager(): Auth {
+  return new Auth(DEFAULT_PROMPT);
 }
 
-async function refreshTokens(refreshToken: string): Promise<MicrosoftOAuthTokens> {
-  const body = new URLSearchParams({
-    client_id: getClientId(),
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-    scope: SCOPE
-  });
-  return requestMicrosoftToken(body);
-}
-
-async function xboxLiveAuth(msAccessToken: string): Promise<any> {
-  const response = await fetch("https://user.auth.xboxlive.com/user/authenticate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      Properties: {
-        AuthMethod: "RPS",
-        SiteName: "user.auth.xboxlive.com",
-        RpsTicket: `d=${msAccessToken}`
-      },
-      RelyingParty: "http://auth.xboxlive.com",
-      TokenType: "JWT"
-    })
-  });
-  if (!response.ok) {
-    throw new Error("Falha no login Xbox Live");
+export function createMicrosoftAuthManager(redirectUri = getMicrosoftRedirectUri()): Auth {
+  const clientId = getMicrosoftClientId();
+  if (clientId) {
+    return new Auth({
+      client_id: clientId,
+      redirect: redirectUri,
+      prompt: DEFAULT_PROMPT
+    });
   }
-  return response.json();
+
+  return new Auth(DEFAULT_PROMPT);
 }
 
-async function xstsAuth(xblToken: string): Promise<any> {
-  const response = await fetch("https://xsts.auth.xboxlive.com/xsts/authorize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      Properties: {
-        SandboxId: "RETAIL",
-        UserTokens: [xblToken]
-      },
-      RelyingParty: "rp://api.minecraftservices.com/",
-      TokenType: "JWT"
-    })
+export function buildMicrosoftAuthUrl(
+  redirectUri = getMicrosoftRedirectUri(),
+  authManager = createMicrosoftAuthManager(redirectUri)
+): string {
+  return authManager.createLink(redirectUri);
+}
+
+async function getMinecraftFromXbox(authPromise: Promise<{ getMinecraft(): Promise<unknown> }>): Promise<MsmcMinecraftToken> {
+  const xbox = await authPromise;
+  return (await xbox.getMinecraft()) as MsmcMinecraftToken;
+}
+
+function buildPersistedMicrosoftRecord(
+  minecraft: MsmcMinecraftToken,
+  input: {
+    refreshTokenKey: string;
+    existingId?: string;
+    existingCreatedAt?: string;
+  }
+): StoredMicrosoftAccount {
+  const authorization = minecraft.mclc();
+  const profile = minecraft.profile;
+
+  if (!authorization.access_token || !authorization.uuid) {
+    throw new Error("MSMC nao retornou um token Minecraft valido");
+  }
+
+  return createMicrosoftAccountRecord({
+    id: input.existingId,
+    createdAt: input.existingCreatedAt,
+    username: profile?.name || authorization.name || "player",
+    uuid: profile?.id || authorization.uuid,
+    accessToken: authorization.access_token,
+    clientToken: authorization.client_token,
+    accessTokenExpiresAt: toIsoDate(minecraft.exp || authorization.meta?.exp),
+    avatarUrl: createAvatarUrl(profile?.id || authorization.uuid),
+    refreshTokenKey: input.refreshTokenKey,
+    xuid: authorization.meta?.xuid,
+    isDemo: authorization.meta?.demo,
+    lastValidatedAt: new Date().toISOString()
   });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Falha no XSTS: ${text}`);
-  }
-  return response.json();
-}
-
-async function minecraftAuth(xstsToken: string, userHash: string): Promise<{ access_token: string; expires_in: number }> {
-  const response = await fetch("https://api.minecraftservices.com/authentication/login_with_xbox", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ identityToken: `XBL3.0 x=${userHash};${xstsToken}` })
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw normalizeMicrosoftServiceError("Falha ao autenticar Minecraft Services", text);
-  }
-  return (await response.json()) as { access_token: string; expires_in: number };
-}
-
-async function verifyEntitlements(accessToken: string): Promise<void> {
-  const response = await fetch("https://api.minecraftservices.com/entitlements/mcstore", {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!response.ok) {
-    throw new Error("Falha ao verificar licenca do Minecraft");
-  }
-  const data = (await response.json()) as { items?: unknown[] };
-  if (!data.items || data.items.length === 0) {
-    throw new Error("A conta Microsoft nao possui Minecraft Java");
-  }
-}
-
-async function fetchMinecraftProfile(accessToken: string): Promise<{ id: string; name: string; skins?: Array<{ url: string }> }> {
-  const response = await fetch("https://api.minecraftservices.com/minecraft/profile", {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw normalizeMicrosoftServiceError("Falha ao obter perfil Minecraft", text);
-  }
-  return (await response.json()) as { id: string; name: string; skins?: Array<{ url: string }> };
-}
-
-async function completeMinecraftChain(msAccessToken: string): Promise<{
-  accessToken: string;
-  accessTokenExpiresAt: string;
-  username: string;
-  uuid: string;
-  avatarUrl?: string;
-}> {
-  const xbl = await xboxLiveAuth(msAccessToken);
-  const xsts = await xstsAuth(xbl.Token);
-  const userHash = xsts?.DisplayClaims?.xui?.[0]?.uhs;
-  if (!userHash) {
-    throw new Error("XSTS nao retornou user hash");
-  }
-  const mc = await minecraftAuth(xsts.Token, userHash);
-  await verifyEntitlements(mc.access_token);
-  const profile = await fetchMinecraftProfile(mc.access_token);
-  return {
-    accessToken: mc.access_token,
-    accessTokenExpiresAt: new Date(Date.now() + mc.expires_in * 1000).toISOString(),
-    username: profile.name,
-    uuid: profile.id,
-    avatarUrl: profile.skins?.[0]?.url
-  };
 }
 
 async function persistMicrosoftAccount(
+  minecraft: MsmcMinecraftToken,
   input: {
-    msAccessToken: string;
-    refreshToken: string;
     refreshTokenKey: string;
     existingId?: string;
+    existingCreatedAt?: string;
   },
   vault = new SecretVault()
 ): Promise<StoredMicrosoftAccount> {
-  const profile = await completeMinecraftChain(input.msAccessToken);
-  await vault.set(input.refreshTokenKey, input.refreshToken);
-  const record = createMicrosoftAccountRecord({
-    id: input.existingId,
-    username: profile.username,
-    uuid: profile.uuid,
-    accessToken: profile.accessToken,
-    accessTokenExpiresAt: profile.accessTokenExpiresAt,
-    avatarUrl: profile.avatarUrl,
-    refreshTokenKey: input.refreshTokenKey,
-    lastValidatedAt: new Date().toISOString()
-  });
+  const refreshToken = minecraft.parent?.msToken?.refresh_token;
+  if (!refreshToken) {
+    throw new Error("MSMC nao retornou o refresh token da conta Microsoft");
+  }
+
+  await vault.set(input.refreshTokenKey, refreshToken);
+  const record = buildPersistedMicrosoftRecord(minecraft, input);
   await upsertStoredAccount(record);
   return record;
 }
 
+export function buildMicrosoftLaunchAuthorization(account: StoredMicrosoftAccount): MsmcLaunchAuthorization {
+  return {
+    access_token: account.accessToken,
+    client_token: account.clientToken || crypto.randomUUID(),
+    uuid: account.uuid,
+    name: account.username,
+    user_properties: {},
+    meta: {
+      type: "msa",
+      xuid: account.xuid,
+      demo: account.isDemo
+    }
+  };
+}
+
 export async function loginMicrosoftFromAuthorizationCode(
   code: string,
-  verifier: string,
-  redirectUri: string,
-  vault = new SecretVault()
+  redirectUri = getMicrosoftRedirectUri(),
+  vault = new SecretVault(),
+  authManager = createMicrosoftAuthManager(redirectUri)
 ): Promise<StoredMicrosoftAccount> {
-  const tokens = await exchangeCodeForTokens(code, verifier, redirectUri);
-  const refreshTokenKey = createRefreshTokenKey(crypto.randomUUID());
-  return persistMicrosoftAccount(
-    {
-      msAccessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      refreshTokenKey
-    },
-    vault
-  );
+  try {
+    const xbox = await authManager.login(code, redirectUri);
+    const minecraft = (await xbox.getMinecraft()) as MsmcMinecraftToken;
+    return persistMicrosoftAccount(
+      minecraft,
+      {
+        refreshTokenKey: createRefreshTokenKey(crypto.randomUUID())
+      },
+      vault
+    );
+  } catch (error) {
+    throw await normalizeMicrosoftError(error, "Falha ao concluir login Microsoft");
+  }
+}
+
+export async function loginMicrosoftInElectronPopup(
+  vault = new SecretVault(),
+  windowProperties: Record<string, unknown> = {},
+  authManager = createDefaultMicrosoftAuthManager()
+): Promise<StoredMicrosoftAccount> {
+  try {
+    const minecraft = await getMinecraftFromXbox(
+      authManager.launch("electron", {
+        ...DEFAULT_ELECTRON_WINDOW,
+        ...windowProperties
+      })
+    );
+
+    return persistMicrosoftAccount(
+      minecraft,
+      {
+        refreshTokenKey: createRefreshTokenKey(crypto.randomUUID())
+      },
+      vault
+    );
+  } catch (error) {
+    throw await normalizeMicrosoftError(error, "Falha ao concluir login Microsoft");
+  }
 }
 
 export async function refreshMicrosoftAccount(account: StoredMicrosoftAccount, vault = new SecretVault()): Promise<StoredMicrosoftAccount> {
@@ -250,16 +335,39 @@ export async function refreshMicrosoftAccount(account: StoredMicrosoftAccount, v
   if (!refreshToken) {
     throw new Error("Refresh token nao encontrado");
   }
-  const refreshed = await refreshTokens(refreshToken);
-  return persistMicrosoftAccount(
-    {
-      msAccessToken: refreshed.access_token,
-      refreshToken: refreshed.refresh_token,
-      refreshTokenKey: account.refreshTokenKey,
-      existingId: account.id
-    },
-    vault
-  );
+
+  try {
+    const authManager = createMicrosoftAuthManager();
+    const minecraft = await getMinecraftFromXbox(authManager.refresh(refreshToken));
+    return persistMicrosoftAccount(
+      minecraft,
+      {
+        refreshTokenKey: account.refreshTokenKey,
+        existingId: account.id,
+        existingCreatedAt: account.createdAt
+      },
+      vault
+    );
+  } catch (error) {
+    if (await shouldRetryWithDefaultMicrosoftAuth(error)) {
+      try {
+        const fallbackAuthManager = createDefaultMicrosoftAuthManager();
+        const minecraft = await getMinecraftFromXbox(fallbackAuthManager.refresh(refreshToken));
+        return persistMicrosoftAccount(
+          minecraft,
+          {
+            refreshTokenKey: account.refreshTokenKey,
+            existingId: account.id,
+            existingCreatedAt: account.createdAt
+          },
+          vault
+        );
+      } catch (fallbackError) {
+        throw await normalizeMicrosoftError(fallbackError, "Falha ao atualizar sessao Microsoft");
+      }
+    }
+    throw await normalizeMicrosoftError(error, "Falha ao atualizar sessao Microsoft");
+  }
 }
 
 export async function refreshMicrosoftAccountById(accountId: string, vault = new SecretVault()): Promise<StoredMicrosoftAccount> {

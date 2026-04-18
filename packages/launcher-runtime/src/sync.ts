@@ -62,14 +62,26 @@ async function extractOverrides(
 
 async function runConcurrent<T>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
   let pointer = 0;
+  let firstError: unknown;
   const tasks = Array.from({ length: Math.min(concurrency, items.length || 1) }, async () => {
     while (pointer < items.length) {
+      if (firstError) {
+        return;
+      }
       const current = pointer;
       pointer += 1;
-      await worker(items[current], current);
+      try {
+        await worker(items[current], current);
+      } catch (error) {
+        firstError = firstError || error;
+        return;
+      }
     }
   });
   await Promise.all(tasks);
+  if (firstError) {
+    throw firstError;
+  }
 }
 
 async function enrichLockEntries(client: CurseForgeClient, lock: ModpackLock): Promise<ModpackLock> {
@@ -111,7 +123,8 @@ async function downloadManifestMods(
   onProgress?: (message: string, progress: number) => Promise<void>
 ): Promise<void> {
   await runConcurrent(lock.files, 4, async (entry, index) => {
-    const targetPath = path.join(paths.modsDir, entry.fileName || `${entry.projectId}-${entry.fileId}.jar`);
+    const targetName = entry.fileName || `${entry.projectId}-${entry.fileId}.jar`;
+    const targetPath = path.join(paths.modsDir, targetName);
     const progress = Math.min(90, progressBase + Math.round(((index + 1) / Math.max(lock.files.length, 1)) * 50));
     if (await fs.pathExists(targetPath)) {
       if (!entry.sha1) {
@@ -128,15 +141,20 @@ async function downloadManifestMods(
       }
     }
 
-    const { info, cachedPath } = await client.downloadProjectFile(entry.projectId, entry.fileId);
-    await fs.copyFile(cachedPath, path.join(paths.modsDir, info.fileName));
-    await logger.log("install", "info", `Mod sincronizado: ${info.fileName}`);
-    await onProgress?.(`Sincronizando mod ${index + 1}/${lock.files.length}: ${info.fileName}`, progress);
-    await logger.log("install", "info", "Progresso de download de mods", {
-      completed: index + 1,
-      total: lock.files.length,
-      progress
-    });
+    try {
+      const { info, cachedPath } = await client.downloadProjectFile(entry.projectId, entry.fileId);
+      await fs.copyFile(cachedPath, path.join(paths.modsDir, info.fileName));
+      await logger.log("install", "info", `Mod sincronizado: ${info.fileName}`);
+      await onProgress?.(`Sincronizando mod ${index + 1}/${lock.files.length}: ${info.fileName}`, progress);
+      await logger.log("install", "info", "Progresso de download de mods", {
+        completed: index + 1,
+        total: lock.files.length,
+        progress
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha desconhecida no download";
+      throw new Error(`Falha ao sincronizar mod ${targetName}: ${message}`);
+    }
   });
 }
 
@@ -164,8 +182,12 @@ export async function syncSingleModpack(options: SyncOptions): Promise<{
   }
 
   await emitProgress(options, `Baixando pacote ${file.displayName}`, 15, "download-modpack");
-  const zipUrl = await client.getDownloadUrl(options.config.curseforgeProjectId, file.id);
-  const zipPath = await client.downloadToCache(zipUrl, `modpack-${project.id}-${file.id}.zip`);
+  const zipSha1 = file.hashes?.find((hash) => hash.algo === 1)?.value;
+  const zipPath = await client.downloadToCache(
+    await client.getDownloadUrls(options.config.curseforgeProjectId, file.id),
+    `modpack-${project.id}-${file.id}.zip`,
+    zipSha1
+  );
 
   await emitProgress(options, "Interpretando manifest do modpack", 25, "manifest");
   const { zip, manifest } = readManifestFromZip(zipPath);

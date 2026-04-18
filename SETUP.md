@@ -1,6 +1,15 @@
 # Setup
 
-## 1. Microsoft Entra
+## 1. Microsoft login
+
+O launcher agora usa `msmc` como camada oficial de autenticacao Microsoft recomendada pelo `minecraft-launcher-core`.
+
+### Fluxo padrao
+
+- Se `MICROSOFT_CLIENT_ID` ficar vazio, o launcher usa o token padrao suportado pelo `msmc`.
+- Nesse modo, basta manter o callback local do launcher configurado em `MS_REDIRECT_URI` ou nas variaveis de host/porta.
+
+### App proprio no Microsoft Entra
 
 1. Abra o portal Microsoft Entra.
 2. Crie um novo app registration para o launcher.
@@ -13,7 +22,7 @@
 
 - O launcher espera `MS_REDIRECT_URI` completo.
 - Se preferir montar por partes, use `MS_REDIRECT_HOST` e `MS_REDIRECT_PORT`.
-- O valor configurado no Entra precisa bater exatamente com o callback local usado na shell.
+- Se `MICROSOFT_CLIENT_ID` estiver configurado, o valor cadastrado no Entra precisa bater exatamente com o callback local usado na shell.
 
 ## 3. CurseForge
 
@@ -75,5 +84,5 @@ Campos principais:
 ## 8. Segurança
 
 - Não comite `.env`.
-- Não hardcodeie `MICROSOFT_CLIENT_ID` ou `CURSEFORGE_API_KEY`.
+- Nao hardcodeie `MICROSOFT_CLIENT_ID` ou `CURSEFORGE_API_KEY`.
 - Mantenha `NOIR_ENABLE_DEV_OFFLINE=false` fora de ambiente local.

@@ -11,6 +11,8 @@ export type CurseForgeFile = {
   fileDate: string;
   downloadCount: number;
   releaseType: number;
+  downloadUrl?: string | null;
+  isAvailable?: boolean;
   hashes?: Array<{ value: string; algo: number }>;
   dependencies?: Array<{ modId: number; relationType: number; fileId: number }>;
 };
@@ -44,6 +46,23 @@ function sha1File(filePath: string): string {
   const hash = crypto.createHash("sha1");
   hash.update(fs.readFileSync(filePath));
   return hash.digest("hex");
+}
+
+export function buildCurseForgeCdnUrl(fileId: number, fileName: string, host = "edge.forgecdn.net"): string {
+  const id = String(fileId);
+  const folder = id.slice(0, -3) || "0";
+  const suffix = id.slice(-3);
+  return `https://${host}/files/${folder}/${suffix}/${encodeURIComponent(fileName)}`;
+}
+
+export function resolveCurseForgeDownloadUrls(file: Pick<CurseForgeFile, "id" | "fileName" | "downloadUrl">): string[] {
+  const candidates = [
+    file.downloadUrl || undefined,
+    buildCurseForgeCdnUrl(file.id, file.fileName, "edge.forgecdn.net"),
+    buildCurseForgeCdnUrl(file.id, file.fileName, "mediafilez.forgecdn.net")
+  ].filter((value): value is string => Boolean(value));
+
+  return [...new Set(candidates)];
 }
 
 export class CurseForgeClient {
@@ -85,11 +104,9 @@ export class CurseForgeClient {
     });
   }
 
-  async getDownloadUrl(projectId: number, fileId: number): Promise<string> {
-    return withRetry(async () => {
-      const response = await this.http.get(`/v1/mods/${projectId}/files/${fileId}/download-url`);
-      return response.data.data as string;
-    });
+  async getDownloadUrls(projectId: number, fileId: number): Promise<string[]> {
+    const info = await this.getFileInfo(projectId, fileId);
+    return resolveCurseForgeDownloadUrls(info);
   }
 
   async resolveTargetFile(projectId: number, preferredFileId?: number): Promise<CurseForgeFile> {
@@ -107,9 +124,10 @@ export class CurseForgeClient {
     return latest;
   }
 
-  async downloadToCache(url: string, filename: string, expectedSha1?: string): Promise<string> {
+  async downloadToCache(url: string | string[], filename: string, expectedSha1?: string): Promise<string> {
     await fs.ensureDir(this.paths.cacheDir);
     const target = path.join(this.paths.cacheDir, filename);
+    const candidates = Array.isArray(url) ? url : [url];
 
     if (await fs.pathExists(target)) {
       if (!expectedSha1 || sha1File(target).toLowerCase() === expectedSha1.toLowerCase()) {
@@ -117,24 +135,46 @@ export class CurseForgeClient {
       }
     }
 
-    const response = await withRetry(() => this.http.get(url, { responseType: "arraybuffer" }), 3, 800);
-    await fs.writeFile(target, response.data);
+    let lastError: unknown;
+    for (const candidate of candidates) {
+      try {
+        const response = await withRetry(
+          () =>
+            axios.get(candidate, {
+              responseType: "arraybuffer",
+              timeout: 60_000,
+              maxRedirects: 5,
+              headers: {
+                "User-Agent": "NOIR Launcher/0.2.0",
+                Accept: "*/*"
+              }
+            }),
+          3,
+          800
+        );
+        await fs.writeFile(target, response.data);
 
-    if (expectedSha1) {
-      const fileHash = sha1File(target);
-      if (fileHash.toLowerCase() !== expectedSha1.toLowerCase()) {
-        throw new Error(`Hash invalido para ${filename}`);
+        if (expectedSha1) {
+          const fileHash = sha1File(target);
+          if (fileHash.toLowerCase() !== expectedSha1.toLowerCase()) {
+            throw new Error(`Hash invalido para ${filename}`);
+          }
+        }
+
+        return target;
+      } catch (error) {
+        lastError = error;
       }
     }
 
-    return target;
+    throw lastError;
   }
 
   async downloadProjectFile(projectId: number, fileId: number): Promise<{ info: CurseForgeFile; cachedPath: string }> {
     const info = await this.getFileInfo(projectId, fileId);
-    const url = await this.getDownloadUrl(projectId, fileId);
     const sha1 = info.hashes?.find((hash) => hash.algo === 1)?.value;
-    const cachedPath = await this.downloadToCache(url, info.fileName || path.basename(url), sha1);
+    const urls = resolveCurseForgeDownloadUrls(info);
+    const cachedPath = await this.downloadToCache(urls, info.fileName || path.basename(urls[0]), sha1);
     return { info, cachedPath };
   }
 }

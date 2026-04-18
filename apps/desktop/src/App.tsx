@@ -86,6 +86,8 @@ export function App() {
   }, []);
 
   const activeAccount = useMemo(() => snapshot?.accounts[0], [snapshot]);
+  const requiresLogin = Boolean(snapshot && snapshot.accounts.length === 0);
+  const visibleScreen: ScreenId = requiresLogin ? "accounts" : activeScreen;
   const canPlay = Boolean(snapshot && snapshot.accounts.length > 0 && snapshot.installState.state === "ready");
 
   const refreshLogs = async () => {
@@ -207,21 +209,28 @@ export function App() {
 
   const renderAccountsScreen = () => (
     <div className="space-y-6">
-      <Panel title="Contas" subtitle="Use somente login Microsoft oficial. Para desenvolvimento local, o modo offline continua restrito por flag de build.">
+      <Panel
+        title={requiresLogin ? "Entrar" : "Contas"}
+        subtitle={
+          requiresLogin
+            ? "Escolha um metodo para continuar no launcher. Use Original para conta Microsoft ou Pirata para nickname offline."
+            : "Gerencie a conta ativa e alterne entre login Original e Pirata."
+        }
+      >
         <div className="flex flex-wrap gap-3">
           <Button
             onClick={() =>
               runWithBusy("login", async () => {
                 const nextSnapshot = await bridge.startMicrosoftLogin();
                 setSnapshot(nextSnapshot);
-                setNotice("Fluxo Microsoft iniciado no navegador padrao.");
+                setNotice("Conta Microsoft conectada.");
               })
             }
             disabled={busyAction === "login"}
           >
-            {busyAction === "login" ? "Aguardando..." : "Entrar com Microsoft"}
+            {busyAction === "login" ? "Aguardando..." : "Original"}
           </Button>
-          <Button variant="secondary" onClick={() => setActiveScreen("play")}>
+          <Button variant="secondary" onClick={() => setActiveScreen("play")} disabled={requiresLogin}>
             Voltar ao inicio
           </Button>
         </div>
@@ -281,42 +290,40 @@ export function App() {
 
           <div className="space-y-4">
             <div className="rounded-[24px] border border-[#C7A24A]/12 bg-[#18130E] p-5">
-              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Login oficial</div>
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Original</div>
               <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
-                O launcher agora abre o fluxo Microsoft no navegador padrao do sistema, em vez de depender de uma janela embutida. Isso tende a ser mais estavel para recuperar o perfil corretamente.
+                O login Microsoft agora abre em uma janela propria do launcher, sem depender de aba externa no navegador.
               </p>
             </div>
 
-            {snapshot.devOfflineAvailable && (
-              <div className="rounded-[24px] border border-[#C7A24A]/16 bg-[#18130E] p-5">
-                <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Offline dev only</div>
-                <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
-                  Uso apenas para validar UI e instancia em desenvolvimento local. Nao serve como substituto do login oficial.
-                </p>
-                <div className="mt-4 flex gap-3">
-                  <input
-                    value={offlineNickname}
-                    onChange={(event) => setOfflineNickname(event.target.value)}
-                    placeholder="Nickname de teste"
-                    className="flex-1 rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-sm text-[#F6F0E1] outline-none placeholder:text-[#7F6D48]"
-                  />
-                  <Button
-                    variant="secondary"
-                    onClick={() =>
-                      runWithBusy("login", async () => {
-                        const nextSnapshot = await bridge.loginOffline(offlineNickname);
-                        setOfflineNickname("");
-                        setSnapshot(nextSnapshot);
-                        setNotice("Conta offline de desenvolvimento criada.");
-                      })
-                    }
-                    disabled={!offlineNickname.trim()}
-                  >
-                    Entrar
-                  </Button>
-                </div>
+            <div className="rounded-[24px] border border-[#C7A24A]/16 bg-[#18130E] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Pirata</div>
+              <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
+                Entre com um nickname offline para iniciar rapido sem autenticar uma conta Microsoft.
+              </p>
+              <div className="mt-4 flex gap-3">
+                <input
+                  value={offlineNickname}
+                  onChange={(event) => setOfflineNickname(event.target.value)}
+                  placeholder="Digite seu nickname"
+                  className="flex-1 rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-sm text-[#F6F0E1] outline-none placeholder:text-[#7F6D48]"
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    runWithBusy("login", async () => {
+                      const nextSnapshot = await bridge.loginOffline(offlineNickname);
+                      setOfflineNickname("");
+                      setSnapshot(nextSnapshot);
+                      setNotice("Conta pirata adicionada.");
+                    })
+                  }
+                  disabled={!offlineNickname.trim()}
+                >
+                  Pirata
+                </Button>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </Panel>
@@ -468,7 +475,7 @@ export function App() {
   );
 
   const renderScreen = () => {
-    switch (activeScreen) {
+    switch (visibleScreen) {
       case "accounts":
         return renderAccountsScreen();
       case "settings":
@@ -523,7 +530,7 @@ export function App() {
                     key={screen.id}
                     onClick={() => setActiveScreen(screen.id)}
                     className={`rounded-2xl px-4 py-3 text-left text-sm font-semibold uppercase tracking-[0.24em] transition ${
-                      activeScreen === screen.id
+                      visibleScreen === screen.id
                         ? "bg-[linear-gradient(135deg,rgba(199,162,74,1),rgba(142,106,34,0.96))] text-[#090806]"
                         : "border border-[#C7A24A]/12 bg-[#16110B] text-[#D5C39A] hover:border-[#C7A24A]/26"
                     }`}

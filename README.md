@@ -1,13 +1,13 @@
 # NOIR Launcher
 
-Launcher desktop dedicado a um unico modpack de Minecraft Java Edition, com front React/Tailwind, shell desktop preparado para Tauri e fallback Electron funcional para desenvolvimento e validação local.
+Launcher desktop dedicado a um unico modpack de Minecraft Java Edition, com front React/Tailwind, shell desktop preparado para Tauri e fallback Electron funcional para desenvolvimento e validacao local.
 
 ## Estado atual
 
 - `apps/desktop`: frontend React/Tailwind, desacoplado da shell via bridge desktop.
 - `apps/desktop-electron`: shell Electron validável nesta máquina.
 - `apps/desktop/src-tauri`: scaffold Tauri para a migração do shell quando houver toolchain Rust/Cargo.
-- `packages/*`: auth Microsoft, CurseForge, runtime Minecraft, updater, instância e tipos compartilhados.
+- `packages/*`: auth Microsoft via `msmc`, runtime via `minecraft-launcher-core`, CurseForge, updater, instancia e tipos compartilhados.
 
 ## Requisitos
 
@@ -47,10 +47,16 @@ npm run test
 
 Copie `.env.example` para `.env` e configure:
 
-- `MICROSOFT_CLIENT_ID`
-- `MS_REDIRECT_URI`
+- `MICROSOFT_CLIENT_ID` opcional
+- `MS_REDIRECT_URI` opcional, mas obrigatorio se voce usar app Microsoft proprio
 - `CURSEFORGE_API_KEY`
 - `NOIR_ENABLE_DEV_OFFLINE=false` em produção
+
+## Integracao base
+
+- Login Microsoft: `msmc` faz o fluxo OAuth/Xbox/Minecraft e gera o payload `mclc()` usado no launch.
+- Launch do jogo: `minecraft-launcher-core` e a fonte unica para download de assets, resolucao de bibliotecas, modloader e spawn do processo Java.
+- Persistencia de sessao: o refresh token fica no vault local (`keytar` quando disponivel, fallback isolado em arquivo) e o launcher reidrata a sessao pelo `msmc`.
 
 ## Estrutura
 

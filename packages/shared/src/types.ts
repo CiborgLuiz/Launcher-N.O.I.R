@@ -61,8 +61,11 @@ export type StoredMicrosoftAccount = {
   username: string;
   uuid: string;
   accessToken: string;
+  clientToken?: string;
   accessTokenExpiresAt?: string;
   refreshTokenKey: string;
+  xuid?: string;
+  isDemo?: boolean;
   avatarUrl?: string;
   lastValidatedAt?: string;
   createdAt: string;
@@ -260,8 +263,11 @@ export function parseStoredAccount(input: unknown): StoredAccount {
     ...base,
     type,
     accessToken: expectString(object.accessToken, "account.accessToken"),
+    clientToken: expectOptionalString(object.clientToken, "account.clientToken"),
     accessTokenExpiresAt: expectOptionalString(object.accessTokenExpiresAt, "account.accessTokenExpiresAt"),
     refreshTokenKey: expectString(object.refreshTokenKey, "account.refreshTokenKey"),
+    xuid: expectOptionalString(object.xuid, "account.xuid"),
+    isDemo: object.isDemo === undefined ? undefined : expectBoolean(object.isDemo, "account.isDemo"),
     lastValidatedAt: expectOptionalString(object.lastValidatedAt, "account.lastValidatedAt")
   };
 }

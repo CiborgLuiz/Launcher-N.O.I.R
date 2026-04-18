@@ -2,7 +2,7 @@ import { Authenticator, Client } from "minecraft-launcher-core";
 import { StoredAccount, StoredMicrosoftAccount } from "../../shared/src";
 import { LauncherSettings, InstanceMetadata } from "../../shared/src";
 import { LauncherPaths } from "../../instance-manager/src";
-import { refreshMicrosoftAccount } from "../../auth/src";
+import { buildMicrosoftLaunchAuthorization, isAccessTokenExpired, refreshMicrosoftAccount } from "../../auth/src";
 import { FileLogger } from "../../core/src/logger";
 import { ensureJavaRuntime, getRequiredJavaVersion } from "./java";
 
@@ -15,21 +15,18 @@ function buildAuthorization(account: StoredAccount) {
     return Authenticator.getAuth(account.username);
   }
 
-  return {
-    access_token: account.accessToken,
-    uuid: account.uuid,
-    name: account.username,
-    user_properties: {},
-    meta: {
-      type: "msa"
-    }
-  };
+  return buildMicrosoftLaunchAuthorization(account as StoredMicrosoftAccount);
 }
 
 async function resolveLaunchAccount(account: StoredAccount): Promise<StoredAccount> {
   if (account.type !== "microsoft") {
     return account;
   }
+
+  if (!isAccessTokenExpired(account as StoredMicrosoftAccount)) {
+    return account;
+  }
+
   return refreshMicrosoftAccount(account as StoredMicrosoftAccount);
 }
 
@@ -61,15 +58,14 @@ export async function launchMinecraftInstance(
     params.logger.log("launcher", "info", "Progresso do runtime", payload as Record<string, unknown>);
   });
 
-  await params.logger.log("launcher", "info", "Iniciando Minecraft", {
-    accountId: account.id,
-    version: params.instance.minecraftVersion,
-    modLoader: params.instance.modLoader
-  });
-
   try {
-    await params.onStatus?.({ state: "started", message: "Minecraft iniciado" });
-    await launcher.launch({
+    await params.logger.log("launcher", "info", "Iniciando Minecraft", {
+      accountId: account.id,
+      version: params.instance.minecraftVersion,
+      modLoader: params.instance.modLoader
+    });
+
+    const minecraft = await launcher.launch({
       authorization: buildAuthorization(account) as never,
       root: params.paths.gameDir,
       javaPath,
@@ -95,9 +91,29 @@ export async function launchMinecraftInstance(
       neoforge: params.instance.modLoader === "neoforge" ? params.instance.modLoaderVersion : undefined
     } as never);
 
-    const durationMs = Date.now() - startedAt;
-    await params.logger.log("launcher", "info", "Minecraft finalizado", { durationMs });
-    await params.onStatus?.({ state: "exited", message: "Minecraft encerrado", durationMs });
+    if (!minecraft) {
+      throw new Error("minecraft-launcher-core nao retornou um processo valido");
+    }
+
+    await params.onStatus?.({ state: "started", message: "Minecraft iniciado" });
+
+    await new Promise<void>((resolve, reject) => {
+      minecraft.once("error", (error) => {
+        reject(error);
+      });
+
+      minecraft.once("close", async (code) => {
+        const durationMs = Date.now() - startedAt;
+        if (code && code !== 0) {
+          reject(new Error(`Minecraft encerrado com codigo ${code}`));
+          return;
+        }
+
+        await params.logger.log("launcher", "info", "Minecraft finalizado", { durationMs, code: code ?? 0 });
+        await params.onStatus?.({ state: "exited", message: "Minecraft encerrado", durationMs });
+        resolve();
+      });
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha desconhecida ao iniciar Minecraft";
     await params.logger.log("launcher", "error", message);

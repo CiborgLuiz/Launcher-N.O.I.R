@@ -6,14 +6,11 @@ try {
   // no-op
 }
 
-import http from "node:http";
 import path from "node:path";
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import {
-  buildMicrosoftAuthUrl,
-  createPkcePair,
-  getMicrosoftRedirectUri,
-  loginMicrosoftFromAuthorizationCode
+  createDefaultMicrosoftAuthManager,
+  loginMicrosoftInElectronPopup
 } from "../../../packages/auth/src";
 import { NoirLauncherService } from "../../../packages/core/src";
 import { LauncherSettings } from "../../../packages/shared/src";
@@ -63,56 +60,34 @@ async function emitSnapshot(): Promise<void> {
 }
 
 async function runMicrosoftLoginFlow(): Promise<void> {
-  const redirectUri = getMicrosoftRedirectUri();
-  const redirect = new URL(redirectUri);
-  const listenHost = redirect.hostname || "127.0.0.1";
-  const listenPort = Number(redirect.port || 80);
-  const callbackPath = redirect.pathname || "/callback";
-  const { verifier, challenge } = createPkcePair();
-  const authUrl = buildMicrosoftAuthUrl(redirectUri, challenge);
+  const authManager = createDefaultMicrosoftAuthManager();
 
-  const codePromise = new Promise<string>((resolve, reject) => {
-    const server = http.createServer((request, response) => {
-      try {
-        const requestUrl = new URL(request.url || "/", `http://${request.headers.host}`);
-        if (requestUrl.pathname === callbackPath && requestUrl.searchParams.get("code")) {
-          const code = requestUrl.searchParams.get("code") || "";
-          response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          response.end("<h1>Login concluido.</h1><p>Voce pode fechar esta janela.</p>");
-          resolve(code);
-          server.close();
-          return;
-        }
-        response.writeHead(404);
-        response.end("Nao encontrado");
-      } catch (error) {
-        response.writeHead(500);
-        response.end("Erro no callback");
-        reject(error);
-      }
-    });
-
-    server.listen(listenPort, listenHost);
-    const timeout = setTimeout(() => {
-      server.close();
-      reject(new Error("Timeout no login Microsoft"));
-    }, 5 * 60_000);
-
-    server.on("close", () => clearTimeout(timeout));
+  authManager.on("load", (_code, message) => {
+    void service.logger.log("auth", "info", message);
   });
 
-  await service.logger.log("auth", "info", "Abrindo login Microsoft no navegador padrao");
-  await shell.openExternal(authUrl);
+  await service.logger.log("auth", "info", "Abrindo janela de login Microsoft");
+  const account = await loginMicrosoftInElectronPopup(
+    service.vault,
+    {
+      parent: mainWindow || undefined,
+      modal: Boolean(mainWindow),
+      backgroundColor: "#090806",
+      titleBarStyle: "default"
+    },
+    authManager
+  );
+  await service.selectAccount(account.id);
+  await service.logger.log("auth", "info", `Conta Microsoft adicionada`, { username: account.username });
+  await emitSnapshot();
+}
 
-  try {
-    const code = await codePromise;
-    const account = await loginMicrosoftFromAuthorizationCode(code, verifier, redirectUri, service.vault);
-    await service.selectAccount(account.id);
-    await service.logger.log("auth", "info", `Conta Microsoft adicionada`, { username: account.username });
+function runBackgroundTask(task: Promise<unknown>, category: "launcher" | "auth" | "install", label: string): void {
+  void task.catch(async (error) => {
+    const message = error instanceof Error ? error.message : label;
+    await service.logger.log(category, "error", `${label}: ${message}`);
     await emitSnapshot();
-  } finally {
-    // Browser externo; nada para fechar localmente.
-  }
+  });
 }
 
 function registerIpcHandlers(): void {
@@ -184,7 +159,11 @@ app.whenReady().then(async () => {
   await createMainWindow();
   registerIpcHandlers();
   await emitSnapshot();
-  void service.restoreSelectedSession().then(() => emitSnapshot());
+  runBackgroundTask(
+    service.restoreSelectedSession().then(() => emitSnapshot()),
+    "auth",
+    "Falha ao restaurar sessao"
+  );
 
   setupElectronUpdater(service.logger, (payload) => {
     emit("updater:status", payload);
@@ -192,11 +171,15 @@ app.whenReady().then(async () => {
 
   const snapshot = await service.getSnapshot();
   if (snapshot.settings.autoUpdateModpack) {
-    void service.syncModpack(async (payload) => emit("launcher:snapshot", payload.snapshot));
+    runBackgroundTask(
+      service.syncModpack(async (payload) => emit("launcher:snapshot", payload.snapshot)),
+      "install",
+      "Falha na sincronizacao automatica do modpack"
+    );
   }
 
   if (snapshot.settings.autoUpdateLauncher && app.isPackaged) {
-    void checkForElectronUpdates();
+    runBackgroundTask(checkForElectronUpdates(), "launcher", "Falha ao verificar updates do launcher");
   }
 });
 

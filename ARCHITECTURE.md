@@ -16,7 +16,7 @@ O launcher foi organizado para servir um unico modpack, com UI desacoplada da sh
 ### `apps/desktop-electron`
 
 - Shell desktop funcional nesta base.
-- Responsável por janela, IPC, callback local do OAuth e abertura de pastas.
+- Responsavel por janela, IPC, callback local do OAuth e abertura de pastas.
 - Encapsula atualizações, eventos de progresso e boot do serviço principal.
 
 ### `apps/desktop/src-tauri`
@@ -40,7 +40,7 @@ O launcher foi organizado para servir um unico modpack, com UI desacoplada da sh
 
 ### `packages/auth`
 
-- Fluxo Microsoft OAuth + Xbox Live + XSTS + Minecraft Services/Profile.
+- Fluxo Microsoft via `msmc`, incluindo OAuth, Xbox Live, XSTS e Minecraft Services/Profile.
 - Armazenamento de refresh token via keychain quando possível, com fallback local isolado.
 - Conta offline bloqueada por flag de desenvolvimento.
 
@@ -55,7 +55,7 @@ O launcher foi organizado para servir um unico modpack, com UI desacoplada da sh
 - Planejamento de update incremental do modpack.
 - Extração de overrides com preservação de diretórios do usuário.
 - Gerenciamento de Java local via Temurin.
-- Launch do Minecraft com `minecraft-launcher-core`.
+- Launch do Minecraft com `minecraft-launcher-core`, usando o payload `mclc()` gerado pelo `msmc`.
 
 ### `packages/core`
 

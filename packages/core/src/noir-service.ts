@@ -2,6 +2,7 @@ import {
   createOfflineDevAccount,
   findStoredAccount,
   getSelectedStoredAccount,
+  isAccessTokenExpired,
   isDevOfflineEnabled,
   listAccountSummaries,
   refreshMicrosoftAccount,
@@ -83,6 +84,10 @@ export class NoirLauncherService {
       return;
     }
 
+    if (!isAccessTokenExpired(account)) {
+      return;
+    }
+
     try {
       await refreshMicrosoftAccount(account, this.vault);
       await this.logger.log("auth", "info", `Sessao restaurada para ${account.username}`);
@@ -135,7 +140,7 @@ export class NoirLauncherService {
   async createOfflineAccount(username: string) {
     const account = await createOfflineDevAccount(username);
     await saveSelectedAccount(account.id);
-    await this.logger.log("auth", "info", "Conta offline de desenvolvimento criada", { username: account.username });
+    await this.logger.log("auth", "info", "Conta offline criada", { username: account.username });
     return account;
   }
 
@@ -256,7 +261,9 @@ export class NoirLauncherService {
         }
         await onStatus?.(payload);
       }
-    }).finally(() => {
+    })
+      .catch(() => undefined)
+      .finally(() => {
       this.activeLaunch = null;
     });
   }
