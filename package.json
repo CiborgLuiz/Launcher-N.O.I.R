@@ -11,15 +11,16 @@
     "build:desktop": "vite build --config apps/desktop/vite.config.ts",
     "build:node": "tsc -p tsconfig.node.json",
     "build": "npm run build:desktop && npm run build:node",
-    "pack": "npm run build && electron-builder --dir --config electron-builder.json",
-    "dist:linux": "npm run build && electron-builder --linux AppImage --config electron-builder.json",
-    "dist:win": "npm run build && electron-builder --win nsis --config electron-builder.json",
-    "dist:win:portable": "npm run build && electron-builder --win portable --config electron-builder.json",
+    "pack": "npm run build && node scripts/run-electron-builder.mjs --dir --config electron-builder.json",
+    "dist:linux": "npm run build && node scripts/run-electron-builder.mjs --linux AppImage --config electron-builder.json",
+    "dist:win": "npm run build && node scripts/run-electron-builder.mjs --win nsis --config electron-builder.json",
+    "dist:win:portable": "npm run build && node scripts/run-electron-builder.mjs --win portable --config electron-builder.json",
     "dist:all": "npm run dist:linux && npm run dist:win",
+    "patch:electron-builder": "node scripts/patch-electron-builder.mjs",
     "check": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit",
     "test": "npm run build:node && node --test tests/*.test.mjs",
     "start": "npm run build && electron .",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps && node scripts/patch-electron-builder.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.12",

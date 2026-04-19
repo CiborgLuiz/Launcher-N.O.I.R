@@ -11,6 +11,10 @@
   ],
   "extraResources": [
     {
+      "from": ".env",
+      "to": ".env"
+    },
+    {
       "from": "resources/branding/logo.ico",
       "to": "branding/logo.ico"
     },
