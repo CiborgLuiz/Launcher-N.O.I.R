@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Auth, lexicon } from "msmc";
 import {
+  buildAvatarUrl,
   createMicrosoftAccountRecord,
   createRefreshTokenKey,
   findStoredAccount,
@@ -174,10 +175,6 @@ function toIsoDate(timestamp?: number): string | undefined {
   return new Date(timestamp).toISOString();
 }
 
-function createAvatarUrl(uuid: string): string {
-  return `https://crafatar.com/avatars/${encodeURIComponent(uuid)}?size=128&overlay`;
-}
-
 export function getMicrosoftRedirectUri(): string {
   const explicitRedirect = process.env.MS_REDIRECT_URI?.trim();
   if (explicitRedirect) {
@@ -241,7 +238,7 @@ function buildPersistedMicrosoftRecord(
     accessToken: authorization.access_token,
     clientToken: authorization.client_token,
     accessTokenExpiresAt: toIsoDate(minecraft.exp || authorization.meta?.exp),
-    avatarUrl: createAvatarUrl(profile?.id || authorization.uuid),
+    avatarUrl: buildAvatarUrl(profile?.name || authorization.name || "player", undefined, profile?.id || authorization.uuid),
     refreshTokenKey: input.refreshTokenKey,
     xuid: authorization.meta?.xuid,
     isDemo: authorization.meta?.demo,

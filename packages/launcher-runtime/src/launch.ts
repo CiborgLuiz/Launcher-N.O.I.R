@@ -4,6 +4,7 @@ import { LauncherSettings, InstanceMetadata } from "../../shared/src";
 import { LauncherPaths } from "../../instance-manager/src";
 import { buildMicrosoftLaunchAuthorization, isAccessTokenExpired, refreshMicrosoftAccount } from "../../auth/src";
 import { FileLogger } from "../../core/src/logger";
+import { ensureForgeInstaller } from "./forge";
 import { ensureJavaRuntime, getRequiredJavaVersion } from "./java";
 
 type LaunchCallbacks = {
@@ -47,8 +48,10 @@ export async function launchMinecraftInstance(
   const javaPath = await ensureJavaRuntime(requiredJavaVersion, params.paths, params.settings.javaPath);
   const startedAt = Date.now();
   const launcher = new Client();
+  let latestDebugMessage = "";
 
   launcher.on("debug", (message) => {
+    latestDebugMessage = `${message}`;
     params.logger.log("launcher", "info", `${message}`);
   });
   launcher.on("data", (message) => {
@@ -64,6 +67,10 @@ export async function launchMinecraftInstance(
       version: params.instance.minecraftVersion,
       modLoader: params.instance.modLoader
     });
+    const forgeInstallerPath =
+      params.instance.modLoader === "forge"
+        ? await ensureForgeInstaller(params.instance.minecraftVersion, params.instance.modLoaderVersion, params.paths, params.logger)
+        : undefined;
 
     const minecraft = await launcher.launch({
       authorization: buildAuthorization(account) as never,
@@ -84,25 +91,30 @@ export async function launchMinecraftInstance(
       },
       forge:
         params.instance.modLoader === "forge"
-          ? `${params.instance.modLoader}-${params.instance.minecraftVersion}-${params.instance.modLoaderVersion}`
+          ? forgeInstallerPath
           : undefined,
       fabric: params.instance.modLoader === "fabric" ? params.instance.modLoaderVersion : undefined,
       quilt: params.instance.modLoader === "quilt" ? params.instance.modLoaderVersion : undefined,
       neoforge: params.instance.modLoader === "neoforge" ? params.instance.modLoaderVersion : undefined
     } as never);
 
-    if (!minecraft) {
-      throw new Error("minecraft-launcher-core nao retornou um processo valido");
+    const hasValidProcess = Boolean(minecraft && typeof minecraft.once === "function");
+
+    if (!hasValidProcess) {
+      const detail = latestDebugMessage || "Sem detalhes adicionais no log de debug do MCLC";
+      throw new Error(`minecraft-launcher-core nao retornou um processo valido. Detalhe: ${detail}`);
     }
+
+    const minecraftProcess = minecraft as any;
 
     await params.onStatus?.({ state: "started", message: "Minecraft iniciado" });
 
     await new Promise<void>((resolve, reject) => {
-      minecraft.once("error", (error) => {
+      minecraftProcess.once("error", (error: Error) => {
         reject(error);
       });
 
-      minecraft.once("close", async (code) => {
+      minecraftProcess.once("close", async (code: number | null) => {
         const durationMs = Date.now() - startedAt;
         if (code && code !== 0) {
           reject(new Error(`Minecraft encerrado com codigo ${code}`));

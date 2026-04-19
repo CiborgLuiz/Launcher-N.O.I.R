@@ -16,6 +16,67 @@ const SCREENS = [
 
 type ScreenId = (typeof SCREENS)[number]["id"];
 
+type AccountAvatar = {
+  avatarUrl?: string;
+  username: string;
+  uuid: string;
+};
+
+function buildAvatarCandidates(account: AccountAvatar, size: number): string[] {
+  const encodedUuid = encodeURIComponent(account.uuid);
+  const encodedUsername = encodeURIComponent(account.username);
+  const urls = [
+    account.avatarUrl && !/crafatar\.com/i.test(account.avatarUrl) ? account.avatarUrl : undefined,
+    `https://mc-heads.net/avatar/${encodedUuid}/${size}`,
+    `https://minotar.net/helm/${encodedUsername}/${size}`,
+    account.avatarUrl,
+    `https://crafatar.com/avatars/${encodedUuid}?size=${size}&overlay`
+  ].filter((value): value is string => Boolean(value));
+
+  return [...new Set(urls)];
+}
+
+function Avatar({
+  account,
+  size,
+  className
+}: {
+  account?: AccountAvatar;
+  size: number;
+  className: string;
+}) {
+  const candidates = useMemo(() => (account ? buildAvatarCandidates(account, size) : []), [account, size]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [showFallback, setShowFallback] = useState(candidates.length === 0);
+
+  useEffect(() => {
+    setCurrentIndex(0);
+    setShowFallback(candidates.length === 0);
+  }, [candidates]);
+
+  if (!account || showFallback || !candidates[currentIndex]) {
+    return <div className={`${className} bg-[#100D09]`} />;
+  }
+
+  return (
+    <img
+      src={candidates[currentIndex]}
+      alt={account.username}
+      className={className}
+      onError={() => {
+        setCurrentIndex((previousIndex) => {
+          const nextIndex = previousIndex + 1;
+          if (nextIndex >= candidates.length) {
+            setShowFallback(true);
+            return previousIndex;
+          }
+          return nextIndex;
+        });
+      }}
+    />
+  );
+}
+
 function formatDuration(durationMs?: number): string {
   if (!durationMs) {
     return "0m";
@@ -177,8 +238,12 @@ export function App() {
             <div className="rounded-[26px] border border-[#C7A24A]/14 bg-[#18130E] p-5">
               <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Conta ativa</div>
               <div className="mt-4 flex items-center gap-4">
-                {activeAccount?.avatarUrl ? (
-                  <img src={activeAccount.avatarUrl} alt={activeAccount.username} className="h-16 w-16 rounded-2xl border border-[#C7A24A]/20 object-cover" />
+                {activeAccount ? (
+                  <Avatar
+                    account={activeAccount}
+                    size={128}
+                    className="h-16 w-16 rounded-2xl border border-[#C7A24A]/20 object-cover"
+                  />
                 ) : (
                   <div className="h-16 w-16 rounded-2xl border border-[#C7A24A]/16 bg-[#100D09]" />
                 )}
@@ -247,8 +312,12 @@ export function App() {
               <div key={account.id} className="rounded-[24px] border border-[#C7A24A]/12 bg-[#18130E] p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    {account.avatarUrl ? (
-                      <img src={account.avatarUrl} alt={account.username} className="h-14 w-14 rounded-2xl border border-[#C7A24A]/18 object-cover" />
+                    {account ? (
+                      <Avatar
+                        account={account}
+                        size={112}
+                        className="h-14 w-14 rounded-2xl border border-[#C7A24A]/18 object-cover"
+                      />
                     ) : (
                       <div className="h-14 w-14 rounded-2xl border border-[#C7A24A]/16 bg-[#100D09]" />
                     )}

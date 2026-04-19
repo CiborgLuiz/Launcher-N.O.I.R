@@ -3,8 +3,35 @@ import { loadAccountsStore, saveAccountsStore } from "../../instance-manager/src
 import { AccountSummary, StoredAccount, StoredMicrosoftAccount, toAccountSummary } from "../../shared/src";
 import { SecretVault } from "./secrets";
 
-export function buildAvatarUrl(username: string, explicitUrl?: string): string {
-  return explicitUrl || `https://minotar.net/helm/${encodeURIComponent(username)}/64`;
+function uniqueUrls(urls: Array<string | undefined>): string[] {
+  return [...new Set(urls.filter((value): value is string => Boolean(value?.trim())))];
+}
+
+function isCrafatarUrl(url: string): boolean {
+  return /crafatar\.com/i.test(url);
+}
+
+export function buildAvatarCandidates(input: {
+  username?: string;
+  uuid?: string;
+  explicitUrl?: string;
+  size?: number;
+}): string[] {
+  const size = input.size ?? 128;
+  const encodedUuid = input.uuid ? encodeURIComponent(input.uuid) : undefined;
+  const encodedUsername = input.username ? encodeURIComponent(input.username) : undefined;
+
+  return uniqueUrls([
+    input.explicitUrl && !isCrafatarUrl(input.explicitUrl) ? input.explicitUrl : undefined,
+    encodedUuid ? `https://mc-heads.net/avatar/${encodedUuid}/${size}` : undefined,
+    encodedUsername ? `https://minotar.net/helm/${encodedUsername}/${size}` : undefined,
+    input.explicitUrl,
+    encodedUuid ? `https://crafatar.com/avatars/${encodedUuid}?size=${size}&overlay` : undefined
+  ]);
+}
+
+export function buildAvatarUrl(username: string, explicitUrl?: string, uuid?: string): string {
+  return buildAvatarCandidates({ username, uuid, explicitUrl })[0] || "";
 }
 
 export function createRefreshTokenKey(accountId: string): string {
@@ -26,7 +53,10 @@ export async function listAccountSummaries(vault = new SecretVault()): Promise<A
     orderedAccounts.map(async (account) => {
       const hasRefreshToken =
         account.type === "microsoft" ? Boolean(await vault.get(account.refreshTokenKey)) : true;
-      return toAccountSummary(account, hasRefreshToken);
+      return {
+        ...toAccountSummary(account, hasRefreshToken),
+        avatarUrl: buildAvatarUrl(account.username, account.avatarUrl, account.uuid)
+      };
     })
   );
 }
@@ -108,7 +138,7 @@ export function createMicrosoftAccountRecord(input: {
     accessToken: input.accessToken,
     clientToken: input.clientToken,
     accessTokenExpiresAt: input.accessTokenExpiresAt,
-    avatarUrl: input.avatarUrl || `https://crafatar.com/avatars/${encodeURIComponent(input.uuid)}?size=128&overlay`,
+    avatarUrl: buildAvatarUrl(input.username, input.avatarUrl, input.uuid),
     refreshTokenKey: input.refreshTokenKey,
     xuid: input.xuid,
     isDemo: input.isDemo,
