@@ -5,6 +5,16 @@
   "directories": {
     "output": "release"
   },
+  "electronUpdaterCompatibility": ">=2.16",
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "CiborgLuiz",
+      "repo": "Launcher-N.O.I.R",
+      "releaseType": "release",
+      "tagNamePrefix": "v"
+    }
+  ],
   "files": [
     "dist/**/*",
     "launcher.config.json"

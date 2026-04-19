@@ -9,12 +9,16 @@ import {
 } from "../../../packages/auth/src";
 import { NoirLauncherService } from "../../../packages/core/src";
 import { LauncherSettings } from "../../../packages/shared/src";
-import { checkForElectronUpdates, setupElectronUpdater } from "../../../packages/updater/src";
+import { checkForElectronUpdates, installDownloadedElectronUpdate, setupElectronUpdater } from "../../../packages/updater/src";
 
 const APP_ID = "com.noir.launcher";
 const DEV_PROJECT_ROOT = path.resolve(__dirname, "../../../..");
 
 let mainWindow: BrowserWindow | null = null;
+let minecraftRunning = false;
+let microsoftLoginRunning = false;
+let pendingLauncherUpdateInstall = false;
+let launcherUpdateInstallScheduled = false;
 
 function getPackagedAppRoot(): string {
   return path.join(process.resourcesPath, "app.asar");
@@ -80,6 +84,57 @@ function emit(channel: string, payload: unknown): void {
   mainWindow?.webContents.send(channel, payload);
 }
 
+function getLauncherUpdateEligibility(): { enabled: boolean; message?: string } {
+  if (!app.isPackaged) {
+    return { enabled: false };
+  }
+
+  if (process.platform === "linux" && !process.env.APPIMAGE) {
+    return {
+      enabled: false,
+      message: "Auto update no Linux exige executar o AppImage oficial do launcher."
+    };
+  }
+
+  if (process.platform === "win32" && process.env.PORTABLE_EXECUTABLE_DIR) {
+    return {
+      enabled: false,
+      message: "Auto update no Windows exige a build NSIS instalada, nao a versao portatil."
+    };
+  }
+
+  return { enabled: true };
+}
+
+function installLauncherUpdateIfReady(): void {
+  if (!pendingLauncherUpdateInstall || launcherUpdateInstallScheduled) {
+    return;
+  }
+
+  if (minecraftRunning || microsoftLoginRunning) {
+    return;
+  }
+
+  launcherUpdateInstallScheduled = true;
+  pendingLauncherUpdateInstall = false;
+  emit("updater:status", {
+    state: "downloaded",
+    message: "Atualizacao baixada. Reiniciando launcher para aplicar a nova versao..."
+  });
+
+  setTimeout(() => {
+    try {
+      installDownloadedElectronUpdate();
+    } catch (error) {
+      launcherUpdateInstallScheduled = false;
+      pendingLauncherUpdateInstall = true;
+      void service.logger.log("launcher", "error", "Falha ao aplicar update do launcher", {
+        message: error instanceof Error ? error.message : "Falha desconhecida ao instalar update"
+      });
+    }
+  }, 1500);
+}
+
 async function createMainWindow(): Promise<void> {
   const iconPath = resolveWindowIconPath();
   mainWindow = new BrowserWindow({
@@ -121,20 +176,26 @@ async function runMicrosoftLoginFlow(): Promise<void> {
     void service.logger.log("auth", "info", message);
   });
 
-  await service.logger.log("auth", "info", "Abrindo janela de login Microsoft");
-  const account = await loginMicrosoftInElectronPopup(
-    service.vault,
-    {
-      parent: mainWindow || undefined,
-      modal: Boolean(mainWindow),
-      backgroundColor: "#090806",
-      titleBarStyle: "default"
-    },
-    authManager
-  );
-  await service.selectAccount(account.id);
-  await service.logger.log("auth", "info", `Conta Microsoft adicionada`, { username: account.username });
-  await emitSnapshot();
+  microsoftLoginRunning = true;
+  try {
+    await service.logger.log("auth", "info", "Abrindo janela de login Microsoft");
+    const account = await loginMicrosoftInElectronPopup(
+      service.vault,
+      {
+        parent: mainWindow || undefined,
+        modal: Boolean(mainWindow),
+        backgroundColor: "#090806",
+        titleBarStyle: "default"
+      },
+      authManager
+    );
+    await service.selectAccount(account.id);
+    await service.logger.log("auth", "info", `Conta Microsoft adicionada`, { username: account.username });
+    await emitSnapshot();
+  } finally {
+    microsoftLoginRunning = false;
+    installLauncherUpdateIfReady();
+  }
 }
 
 function runBackgroundTask(task: Promise<unknown>, category: "launcher" | "auth" | "install", label: string): void {
@@ -196,8 +257,17 @@ function registerIpcHandlers(): void {
       if (payload.state === "started" && settings.minimizeOnGameLaunch) {
         mainWindow?.minimize();
       }
+      if (payload.state === "started") {
+        minecraftRunning = true;
+      }
+      if (payload.state === "exited" || payload.state === "error") {
+        minecraftRunning = false;
+      }
       emit("minecraft:status", payload);
       await emitSnapshot();
+      if (payload.state === "exited" || payload.state === "error") {
+        installLauncherUpdateIfReady();
+      }
     });
   });
 
@@ -226,6 +296,10 @@ app.whenReady().then(async () => {
 
   setupElectronUpdater(service.logger, (payload) => {
     emit("updater:status", payload);
+    if (payload.state === "downloaded") {
+      pendingLauncherUpdateInstall = true;
+      installLauncherUpdateIfReady();
+    }
   });
 
   const snapshot = await service.getSnapshot();
@@ -237,8 +311,11 @@ app.whenReady().then(async () => {
     );
   }
 
-  if (snapshot.settings.autoUpdateLauncher && app.isPackaged) {
+  const launcherUpdateEligibility = getLauncherUpdateEligibility();
+  if (snapshot.settings.autoUpdateLauncher && launcherUpdateEligibility.enabled) {
     runBackgroundTask(checkForElectronUpdates(), "launcher", "Falha ao verificar updates do launcher");
+  } else if (snapshot.settings.autoUpdateLauncher && launcherUpdateEligibility.message) {
+    emit("updater:status", { state: "idle", message: launcherUpdateEligibility.message });
   }
 });
 
