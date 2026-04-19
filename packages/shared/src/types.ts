@@ -47,6 +47,7 @@ export type LauncherSettings = {
   resolutionWidth: number;
   resolutionHeight: number;
   fullscreen: boolean;
+  minimizeOnGameLaunch: boolean;
   javaPath: string;
   instanceDirectory: string;
   autoUpdateLauncher: boolean;
@@ -121,6 +122,7 @@ export type InstallState = {
   state: "idle" | "syncing" | "ready" | "launching" | "error";
   message: string;
   progress: number;
+  totalPlayedMs: number;
   currentStep?: string;
   installedFileId?: number;
   launcherUpdatedAt?: string;
@@ -193,6 +195,7 @@ export function createDefaultSettings(config: LauncherConfig, instanceDirectory:
     resolutionWidth: 1600,
     resolutionHeight: 900,
     fullscreen: false,
+    minimizeOnGameLaunch: true,
     javaPath: "",
     instanceDirectory,
     autoUpdateLauncher: true,
@@ -211,6 +214,10 @@ export function parseLauncherSettings(input: unknown, fallback: LauncherSettings
     resolutionHeight:
       object.resolutionHeight === undefined ? fallback.resolutionHeight : expectNumber(object.resolutionHeight, "resolutionHeight"),
     fullscreen: object.fullscreen === undefined ? fallback.fullscreen : expectBoolean(object.fullscreen, "fullscreen"),
+    minimizeOnGameLaunch:
+      object.minimizeOnGameLaunch === undefined
+        ? fallback.minimizeOnGameLaunch
+        : expectBoolean(object.minimizeOnGameLaunch, "minimizeOnGameLaunch"),
     javaPath: typeof object.javaPath === "string" ? object.javaPath : fallback.javaPath,
     instanceDirectory:
       typeof object.instanceDirectory === "string" && object.instanceDirectory.length > 0
@@ -288,7 +295,8 @@ export function createDefaultInstallState(): InstallState {
   return {
     state: "idle",
     message: "Aguardando verificacao inicial",
-    progress: 0
+    progress: 0,
+    totalPlayedMs: 0
   };
 }
 
@@ -298,6 +306,7 @@ export function parseInstallState(input: unknown): InstallState {
     state: expectEnum(object.state, "installState.state", ["idle", "syncing", "ready", "launching", "error"] as const),
     message: expectString(object.message, "installState.message"),
     progress: expectNumber(object.progress, "installState.progress"),
+    totalPlayedMs: object.totalPlayedMs === undefined ? 0 : expectNumber(object.totalPlayedMs, "installState.totalPlayedMs"),
     currentStep: expectOptionalString(object.currentStep, "installState.currentStep"),
     installedFileId: object.installedFileId === undefined ? undefined : expectNumber(object.installedFileId, "installState.installedFileId"),
     launcherUpdatedAt: expectOptionalString(object.launcherUpdatedAt, "installState.launcherUpdatedAt"),

@@ -85,6 +85,19 @@ function formatDuration(durationMs?: number): string {
   return `${minutes}m`;
 }
 
+function formatPlaytimeHours(totalPlayedMs: number): string {
+  if (!Number.isFinite(totalPlayedMs) || totalPlayedMs <= 0) {
+    return "0,0 h";
+  }
+
+  const hours = totalPlayedMs / 3_600_000;
+  const formatter = new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: hours >= 10 ? 0 : 1,
+    maximumFractionDigits: 1
+  });
+  return `${formatter.format(hours)} h`;
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [logs, setLogs] = useState<LauncherLogEntry[]>([]);
@@ -148,7 +161,7 @@ export function App() {
 
   const activeAccount = useMemo(() => snapshot?.accounts[0], [snapshot]);
   const requiresLogin = Boolean(snapshot && snapshot.accounts.length === 0);
-  const visibleScreen: ScreenId = requiresLogin ? "accounts" : activeScreen;
+  const visibleScreen: ScreenId = activeScreen;
   const canPlay = Boolean(snapshot && snapshot.accounts.length > 0 && snapshot.installState.state === "ready");
 
   const refreshLogs = async () => {
@@ -174,6 +187,37 @@ export function App() {
   if (!snapshot || !settingsDraft) {
     return <div className="flex min-h-screen items-center justify-center text-[#C7B182]">Carregando launcher...</div>;
   }
+
+  const requireLoginFirst = () => {
+    if (!requiresLogin) {
+      return false;
+    }
+    setNotice("Voce precisa logar primeiro.");
+    return true;
+  };
+
+  const handleMicrosoftLogin = async () => {
+    await runWithBusy("login", async () => {
+      const nextSnapshot = await bridge.startMicrosoftLogin();
+      setSnapshot(nextSnapshot);
+      setNotice("Conta Microsoft conectada.");
+    });
+  };
+
+  const handleOfflineLogin = async () => {
+    const nickname = offlineNickname.trim();
+    if (!nickname) {
+      setNotice("Digite um nickname para continuar.");
+      return;
+    }
+
+    await runWithBusy("login", async () => {
+      const nextSnapshot = await bridge.loginOffline(nickname);
+      setOfflineNickname("");
+      setSnapshot(nextSnapshot);
+      setNotice("Conta pirata adicionada.");
+    });
+  };
 
   const renderPlayScreen = () => (
     <div className="space-y-6">
@@ -201,34 +245,56 @@ export function App() {
 
             <div className="mt-6 flex flex-wrap gap-3">
               <Button
-                onClick={() =>
-                  runWithBusy("play", async () => {
+                onClick={() => {
+                  if (requireLoginFirst()) {
+                    return;
+                  }
+                  void runWithBusy("play", async () => {
                     if (activeAccount) {
                       await bridge.play(activeAccount.id);
                     }
-                  })
-                }
-                disabled={!canPlay || busyAction === "play"}
+                  });
+                }}
+                disabled={busyAction === "play" || (!requiresLogin && !canPlay)}
                 className="min-w-[180px]"
               >
                 {busyAction === "play" ? "Abrindo..." : "Play"}
               </Button>
               <Button
                 variant="secondary"
-                onClick={() =>
-                  runWithBusy("sync", async () => {
+                onClick={() => {
+                  if (requireLoginFirst()) {
+                    return;
+                  }
+                  void runWithBusy("sync", async () => {
                     const nextSnapshot = await bridge.syncModpack();
                     setSnapshot(nextSnapshot);
-                  })
-                }
+                  });
+                }}
                 disabled={busyAction === "sync"}
               >
                 {busyAction === "sync" ? "Sincronizando" : "Atualizar modpack"}
               </Button>
-              <Button variant="secondary" onClick={() => bridge.openInstanceFolder()}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (requireLoginFirst()) {
+                    return;
+                  }
+                  void bridge.openInstanceFolder();
+                }}
+              >
                 Pasta da instancia
               </Button>
-              <Button variant="secondary" onClick={() => bridge.openLogsFolder()}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (requireLoginFirst()) {
+                    return;
+                  }
+                  void bridge.openLogsFolder();
+                }}
+              >
                 Pasta de logs
               </Button>
             </div>
@@ -259,11 +325,7 @@ export function App() {
               <div className="mt-3 space-y-3">
                 <StatusPill label="Launcher update" value={updaterMessage} tone="warning" />
                 <StatusPill label="Ultima sessao" value={lastRunSummary} />
-                <StatusPill
-                  label="Servidor"
-                  value={snapshot.instance.serverAddress || "Nao configurado"}
-                  tone={snapshot.instance.serverAddress ? "success" : "default"}
-                />
+                <StatusPill label="Tempo jogado" value={formatPlaytimeHours(snapshot.installState.totalPlayedMs)} tone="success" />
               </div>
             </div>
           </div>
@@ -283,16 +345,7 @@ export function App() {
         }
       >
         <div className="flex flex-wrap gap-3">
-          <Button
-            onClick={() =>
-              runWithBusy("login", async () => {
-                const nextSnapshot = await bridge.startMicrosoftLogin();
-                setSnapshot(nextSnapshot);
-                setNotice("Conta Microsoft conectada.");
-              })
-            }
-            disabled={busyAction === "login"}
-          >
+          <Button onClick={() => void handleMicrosoftLogin()} disabled={busyAction === "login"}>
             {busyAction === "login" ? "Aguardando..." : "Original"}
           </Button>
           <Button variant="secondary" onClick={() => setActiveScreen("play")} disabled={requiresLogin}>
@@ -379,15 +432,8 @@ export function App() {
                 />
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    runWithBusy("login", async () => {
-                      const nextSnapshot = await bridge.loginOffline(offlineNickname);
-                      setOfflineNickname("");
-                      setSnapshot(nextSnapshot);
-                      setNotice("Conta pirata adicionada.");
-                    })
-                  }
-                  disabled={!offlineNickname.trim()}
+                  onClick={() => void handleOfflineLogin()}
+                  disabled={!offlineNickname.trim() || busyAction === "login"}
                 >
                   Pirata
                 </Button>
@@ -457,6 +503,14 @@ export function App() {
               type="checkbox"
               checked={settingsDraft.fullscreen}
               onChange={(event) => setSettingsDraft({ ...settingsDraft, fullscreen: event.target.checked })}
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-2xl border border-[#C7A24A]/12 bg-[#18130E] px-4 py-3 text-[#F6F0E1]">
+            <span>Minimizar o launcher quando o jogo abrir</span>
+            <input
+              type="checkbox"
+              checked={settingsDraft.minimizeOnGameLaunch}
+              onChange={(event) => setSettingsDraft({ ...settingsDraft, minimizeOnGameLaunch: event.target.checked })}
             />
           </label>
           <label className="flex items-center justify-between rounded-2xl border border-[#C7A24A]/12 bg-[#18130E] px-4 py-3 text-[#F6F0E1]">
@@ -543,6 +597,56 @@ export function App() {
     </div>
   );
 
+  const renderLoginModal = () => {
+    if (!requiresLogin) {
+      return null;
+    }
+
+    return (
+      <div className="absolute inset-0 z-20 flex items-center justify-center bg-[rgba(5,4,2,0.82)] px-5 py-6 backdrop-blur-md">
+        <div className="w-full max-w-4xl rounded-[32px] border border-[#C7A24A]/20 bg-[linear-gradient(180deg,rgba(24,19,14,0.98),rgba(12,9,6,0.98))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.48)] md:p-8">
+          <div className="text-[10px] uppercase tracking-[0.28em] text-[#B49A66]">Acesso obrigatorio</div>
+          <h2 className="mt-4 font-display text-3xl uppercase tracking-[0.16em] text-[#F6F0E1] md:text-4xl">
+            Voce precisa logar primeiro
+          </h2>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-[#D5C39A]">
+            Escolha um metodo de acesso para liberar o launcher. Enquanto nenhuma conta estiver conectada, o restante da interface fica travado.
+          </p>
+
+          <div className="mt-8 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[26px] border border-[#C7A24A]/14 bg-[#18130E] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Original</div>
+              <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
+                Entre com sua conta Microsoft em uma janela dedicada do launcher.
+              </p>
+              <Button onClick={() => void handleMicrosoftLogin()} disabled={busyAction === "login"} className="mt-5 min-w-[180px]">
+                {busyAction === "login" ? "Aguardando..." : "Entrar com Microsoft"}
+              </Button>
+            </div>
+
+            <div className="rounded-[26px] border border-[#C7A24A]/14 bg-[#18130E] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Pirata</div>
+              <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
+                Use um nickname offline para entrar rapido sem autenticar uma conta Microsoft.
+              </p>
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <input
+                  value={offlineNickname}
+                  onChange={(event) => setOfflineNickname(event.target.value)}
+                  placeholder="Digite seu nickname"
+                  className="flex-1 rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-sm text-[#F6F0E1] outline-none placeholder:text-[#7F6D48]"
+                />
+                <Button variant="secondary" onClick={() => void handleOfflineLogin()} disabled={!offlineNickname.trim() || busyAction === "login"}>
+                  Entrar offline
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderScreen = () => {
     switch (visibleScreen) {
       case "accounts":
@@ -582,7 +686,7 @@ export function App() {
           </div>
         </header>
 
-        <main className="mt-6 grid flex-1 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+        <main className="relative mt-6 grid flex-1 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
           <aside className="space-y-6">
             <Panel className="p-5">
               <div className="flex items-center gap-4">
@@ -597,7 +701,13 @@ export function App() {
                 {SCREENS.map((screen) => (
                   <button
                     key={screen.id}
-                    onClick={() => setActiveScreen(screen.id)}
+                    onClick={() => {
+                      if (requiresLogin && screen.id !== "accounts") {
+                        setNotice("Voce precisa logar primeiro.");
+                        return;
+                      }
+                      setActiveScreen(screen.id);
+                    }}
                     className={`rounded-2xl px-4 py-3 text-left text-sm font-semibold uppercase tracking-[0.24em] transition ${
                       visibleScreen === screen.id
                         ? "bg-[linear-gradient(135deg,rgba(199,162,74,1),rgba(142,106,34,0.96))] text-[#090806]"
@@ -627,6 +737,8 @@ export function App() {
             )}
             {renderScreen()}
           </section>
+
+          {renderLoginModal()}
         </main>
       </div>
     </div>

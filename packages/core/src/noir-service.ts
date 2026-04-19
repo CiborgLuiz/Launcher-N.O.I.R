@@ -22,7 +22,6 @@ import {
   saveSettings
 } from "../../instance-manager/src";
 import {
-  createDefaultInstallState,
   InstallState,
   LauncherConfig,
   LauncherSettings,
@@ -164,11 +163,15 @@ export class NoirLauncherService {
 
     this.activeSync = (async () => {
       const config = await this.requireConfig();
-      const startedState = createDefaultInstallState();
-      startedState.state = "syncing";
-      startedState.progress = 1;
-      startedState.message = "Iniciando verificacao do modpack";
-      startedState.currentStep = "bootstrap";
+      const currentState = await loadInstallState(this.paths);
+      const startedState: InstallState = {
+        ...currentState,
+        state: "syncing",
+        progress: 1,
+        message: "Iniciando verificacao do modpack",
+        currentStep: "bootstrap",
+        errorMessage: undefined
+      };
       await saveInstallState(startedState, this.paths);
 
       try {
@@ -243,12 +246,15 @@ export class NoirLauncherService {
       logger: this.logger,
       onStatus: async (payload) => {
         if (payload.state === "exited") {
+          const currentState = await loadInstallState(this.paths);
           await this.updateInstallState({
             state: "ready",
             message: payload.message,
             progress: 100,
+            totalPlayedMs: currentState.totalPlayedMs + (payload.durationMs || 0),
             lastPlayedAt: new Date().toISOString(),
-            currentStep: "ready"
+            currentStep: "ready",
+            errorMessage: undefined
           });
         }
         if (payload.state === "error") {
@@ -264,7 +270,7 @@ export class NoirLauncherService {
     })
       .catch(() => undefined)
       .finally(() => {
-      this.activeLaunch = null;
-    });
+        this.activeLaunch = null;
+      });
   }
 }

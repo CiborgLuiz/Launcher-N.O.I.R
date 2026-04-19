@@ -37,7 +37,7 @@ const mockSnapshot: LauncherSnapshot = {
       applicationName: "NOIR Launcher",
       productName: "NOIR SMP",
       shortName: "NOIR",
-      tagline: "Nucleo de operacoes para um unico modpack.",
+      tagline: "Nucleo de operações e investigações de rupturas.",
       accent: "#3F00FF",
       background: "#0A0A0A"
     }
@@ -48,6 +48,7 @@ const mockSnapshot: LauncherSnapshot = {
     resolutionWidth: 1600,
     resolutionHeight: 900,
     fullscreen: false,
+    minimizeOnGameLaunch: true,
     javaPath: "",
     instanceDirectory: "~/.noirlauncher/noir-smp",
     autoUpdateLauncher: true,
@@ -59,6 +60,7 @@ const mockSnapshot: LauncherSnapshot = {
     state: "ready",
     message: "Preview da UI em modo navegador",
     progress: 100,
+    totalPlayedMs: 0,
     currentStep: "ready",
     lastSyncedAt: new Date().toISOString()
   },

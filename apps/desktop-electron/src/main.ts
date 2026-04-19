@@ -191,7 +191,11 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("minecraft:play", async (_event, accountId: string) => {
+    const { settings } = await service.getSnapshot();
     await service.play(accountId, async (payload) => {
+      if (payload.state === "started" && settings.minimizeOnGameLaunch) {
+        mainWindow?.minimize();
+      }
       emit("minecraft:status", payload);
       await emitSnapshot();
     });
