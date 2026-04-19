@@ -1,12 +1,7 @@
-try {
-  // Allow the packaged launcher to load local environment overrides when present.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  require("dotenv").config();
-} catch {
-  // no-op
-}
-
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import dotenv from "dotenv";
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import {
   createDefaultMicrosoftAuthManager,
@@ -16,11 +11,69 @@ import { NoirLauncherService } from "../../../packages/core/src";
 import { LauncherSettings } from "../../../packages/shared/src";
 import { checkForElectronUpdates, setupElectronUpdater } from "../../../packages/updater/src";
 
+const APP_ID = "com.noir.launcher";
+const DEV_PROJECT_ROOT = path.resolve(__dirname, "../../../..");
+
 let mainWindow: BrowserWindow | null = null;
+
+function getPackagedAppRoot(): string {
+  return path.join(process.resourcesPath, "app.asar");
+}
+
+function getRuntimeAppRoot(): string {
+  return app.isPackaged ? getPackagedAppRoot() : DEV_PROJECT_ROOT;
+}
+
+function resolveFirstExistingPath(candidates: string[]): string {
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+}
+
+function resolveConfigPath(): string {
+  return resolveFirstExistingPath([
+    path.join(process.resourcesPath, "config", "launcher.config.json"),
+    path.join(getRuntimeAppRoot(), "launcher.config.json"),
+    path.join(DEV_PROJECT_ROOT, "launcher.config.json")
+  ]);
+}
+
+function resolveUiEntryPath(): string {
+  return path.join(getRuntimeAppRoot(), "dist", "apps", "desktop", "index.html");
+}
+
+function resolveWindowIconPath(): string | undefined {
+  const iconFileName = process.platform === "linux" ? "logo.png" : "logo.ico";
+  const candidates = [
+    path.join(process.resourcesPath, "branding", iconFileName),
+    path.join(DEV_PROJECT_ROOT, "resources", "branding", iconFileName)
+  ];
+  const iconPath = candidates.find((candidate) => fs.existsSync(candidate));
+  return iconPath;
+}
+
+function configureRuntimeEnvironment(): void {
+  const envCandidates = [
+    path.join(os.homedir(), ".noirlauncher", ".env"),
+    path.join(path.dirname(process.execPath), ".env"),
+    path.join(process.resourcesPath, ".env"),
+    path.join(DEV_PROJECT_ROOT, ".env"),
+    path.resolve(process.cwd(), ".env")
+  ];
+
+  const envPath = envCandidates.find((candidate) => fs.existsSync(candidate));
+  if (envPath) {
+    dotenv.config({ path: envPath, override: false });
+  }
+}
+
+configureRuntimeEnvironment();
+
+if (process.platform === "win32") {
+  app.setAppUserModelId(APP_ID);
+}
 
 const service = new NoirLauncherService({
   appVersion: app.getVersion(),
-  configPath: path.resolve(process.cwd(), "launcher.config.json")
+  configPath: resolveConfigPath()
 });
 
 function emit(channel: string, payload: unknown): void {
@@ -28,6 +81,7 @@ function emit(channel: string, payload: unknown): void {
 }
 
 async function createMainWindow(): Promise<void> {
+  const iconPath = resolveWindowIconPath();
   mainWindow = new BrowserWindow({
     width: 1480,
     height: 940,
@@ -36,6 +90,7 @@ async function createMainWindow(): Promise<void> {
     frame: false,
     titleBarStyle: "hidden",
     backgroundColor: "#070707",
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -47,7 +102,7 @@ async function createMainWindow(): Promise<void> {
   if (devUrl) {
     await mainWindow.loadURL(devUrl);
   } else {
-    await mainWindow.loadFile(path.resolve(process.cwd(), "dist/apps/desktop/index.html"));
+    await mainWindow.loadFile(resolveUiEntryPath());
   }
 
   mainWindow.on("closed", () => {

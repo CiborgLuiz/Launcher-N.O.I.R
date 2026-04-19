@@ -1,0 +1,49 @@
+{
+  "appId": "com.noir.launcher",
+  "productName": "NOIR Launcher",
+  "asar": true,
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "launcher.config.json"
+  ],
+  "extraResources": [
+    {
+      "from": "resources/branding/logo.ico",
+      "to": "branding/logo.ico"
+    },
+    {
+      "from": "resources/branding/logo.png",
+      "to": "branding/logo.png"
+    },
+    {
+      "from": "launcher.config.json",
+      "to": "config/launcher.config.json"
+    }
+  ],
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "category": "Game",
+    "icon": "resources/branding/logo.png",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "win": {
+    "icon": "resources/branding/logo.ico",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "nsis": {
+    "artifactName": "${productName}-Setup-${version}.${ext}",
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "NOIR Launcher",
+    "installerIcon": "resources/branding/logo.ico",
+    "uninstallerIcon": "resources/branding/logo.ico",
+    "installerHeaderIcon": "resources/branding/logo.ico"
+  }
+}

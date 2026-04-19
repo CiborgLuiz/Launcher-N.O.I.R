@@ -37,6 +37,40 @@ npm run dev:shell
 npm run build
 ```
 
+### Pacote para validar o app empacotado
+
+```bash
+npm run pack
+```
+
+### Pacote Linux
+
+```bash
+npm run dist:linux
+```
+
+Isso gera um `AppImage` em `release/`.
+
+### Instalador Windows com assistente de instalação
+
+```bash
+npm run dist:win
+```
+
+Isso gera o instalador `NSIS` em `release/` com assistente de instalação e usa o ícone `resources/branding/logo.ico` no app e no instalador.
+
+Se quiser apenas um executável portátil sem instalador:
+
+```bash
+npm run dist:win:portable
+```
+
+Para gerar Linux e Windows em sequência:
+
+```bash
+npm run dist:all
+```
+
 ### Testes
 
 ```bash
@@ -82,3 +116,4 @@ resources/
 - O shell Electron está funcional nesta base.
 - O scaffold Tauri foi incluído, mas não foi validado nesta máquina porque não há `cargo`/`rustc` instalados.
 - O modo offline existe apenas sob `NOIR_ENABLE_DEV_OFFLINE=true` e não deve ser exposto em builds de produção.
+- O launcher empacotado procura overrides de ambiente em `~/.noirlauncher/.env`, ao lado do executável e em `resources/.env`, nessa ordem.
