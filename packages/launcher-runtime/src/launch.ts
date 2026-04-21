@@ -4,7 +4,12 @@ import { LauncherSettings, InstanceMetadata } from "../../shared/src";
 import { LauncherPaths } from "../../instance-manager/src";
 import { buildMicrosoftLaunchAuthorization, isAccessTokenExpired, refreshMicrosoftAccount } from "../../auth/src";
 import { FileLogger } from "../../core/src/logger";
-import { ensureForgeInstaller } from "./forge";
+import {
+  ensureForgeInstaller,
+  invalidateStaleForgeVersionCache,
+  readForgeInstallerManifest,
+  resolveForgeJvmArgs
+} from "./forge";
 import { ensureJavaRuntime, getRequiredJavaVersion } from "./java";
 
 type LaunchCallbacks = {
@@ -40,42 +45,58 @@ export async function launchMinecraftInstance(
     logger: FileLogger;
   } & LaunchCallbacks
 ): Promise<void> {
-  const account = await resolveLaunchAccount(params.account);
-  const requiredJavaVersion = getRequiredJavaVersion(
-    params.instance.minecraftVersion,
-    params.instance.javaVersionRequired
-  );
-  const javaPath = await ensureJavaRuntime(requiredJavaVersion, params.paths, params.settings.javaPath);
   const startedAt = Date.now();
-  const launcher = new Client();
   let latestDebugMessage = "";
 
-  launcher.on("debug", (message) => {
-    latestDebugMessage = `${message}`;
-    params.logger.log("launcher", "info", `${message}`);
-  });
-  launcher.on("data", (message) => {
-    params.logger.log("minecraft", "info", `${message}`);
-  });
-  launcher.on("progress", (payload) => {
-    params.logger.log("launcher", "info", "Progresso do runtime", payload as Record<string, unknown>);
-  });
-
   try {
+    const account = await resolveLaunchAccount(params.account);
+    const requiredJavaVersion = getRequiredJavaVersion(
+      params.instance.minecraftVersion,
+      params.instance.javaVersionRequired
+    );
+    const javaPath = await ensureJavaRuntime(requiredJavaVersion, params.paths, params.settings.javaPath);
+    const launcher = new Client();
+
+    launcher.on("debug", (message) => {
+      latestDebugMessage = `${message}`;
+      params.logger.log("launcher", "info", `${message}`);
+    });
+    launcher.on("data", (message) => {
+      params.logger.log("minecraft", "info", `${message}`);
+    });
+    launcher.on("progress", (payload) => {
+      params.logger.log("launcher", "info", "Progresso do runtime", payload as Record<string, unknown>);
+    });
+
     await params.logger.log("launcher", "info", "Iniciando Minecraft", {
       accountId: account.id,
       version: params.instance.minecraftVersion,
       modLoader: params.instance.modLoader
     });
+    let customArgs: string[] | undefined;
     const forgeInstallerPath =
       params.instance.modLoader === "forge"
         ? await ensureForgeInstaller(params.instance.minecraftVersion, params.instance.modLoaderVersion, params.paths, params.logger)
         : undefined;
 
+    if (forgeInstallerPath) {
+      const forgeManifest = await readForgeInstallerManifest(forgeInstallerPath);
+      if (forgeManifest) {
+        await invalidateStaleForgeVersionCache(
+          params.instance.minecraftVersion,
+          forgeManifest.id,
+          params.paths,
+          params.logger
+        );
+        customArgs = resolveForgeJvmArgs(forgeManifest, params.paths.librariesDir);
+      }
+    }
+
     const minecraft = await launcher.launch({
       authorization: buildAuthorization(account) as never,
       root: params.paths.gameDir,
       javaPath,
+      customArgs,
       memory: {
         min: `${params.settings.minimumRamMb}M`,
         max: `${params.settings.maximumRamMb}M`

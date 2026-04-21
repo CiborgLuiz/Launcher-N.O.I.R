@@ -73,8 +73,32 @@ export class NoirLauncherService {
     await loadSettings(this.config, this.paths);
     await loadInstanceMetadata(this.config, this.paths);
     await loadInstallState(this.paths);
+    await this.recoverInterruptedLaunchState();
     await this.logger.log("launcher", "info", "Launcher inicializado");
     return this.getSnapshot();
+  }
+
+  private async recoverInterruptedLaunchState(): Promise<void> {
+    const installState = await loadInstallState(this.paths);
+    if (installState.state !== "launching") {
+      return;
+    }
+
+    const recoveredState: InstallState = {
+      ...installState,
+      state: installState.lastSyncedAt ? "ready" : "idle",
+      message: installState.lastSyncedAt
+        ? "Abertura anterior interrompida. Pronto para tentar novamente."
+        : "Aguardando verificacao inicial",
+      progress: installState.lastSyncedAt ? 100 : 0,
+      currentStep: installState.lastSyncedAt ? "ready" : undefined,
+      errorMessage: undefined
+    };
+
+    await saveInstallState(recoveredState, this.paths);
+    await this.logger.log("launcher", "warn", "Estado de abertura interrompido foi recuperado", {
+      previousMessage: installState.message
+    });
   }
 
   async restoreSelectedSession(): Promise<void> {
@@ -245,6 +269,15 @@ export class NoirLauncherService {
       paths: this.paths,
       logger: this.logger,
       onStatus: async (payload) => {
+        if (payload.state === "started") {
+          await this.updateInstallState({
+            state: "launching",
+            message: "Minecraft em execucao",
+            progress: 100,
+            currentStep: "running",
+            errorMessage: undefined
+          });
+        }
         if (payload.state === "exited") {
           const currentState = await loadInstallState(this.paths);
           await this.updateInstallState({

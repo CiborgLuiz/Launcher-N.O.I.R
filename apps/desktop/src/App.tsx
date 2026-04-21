@@ -98,6 +98,10 @@ function formatPlaytimeHours(totalPlayedMs: number): string {
   return `${formatter.format(hours)} h`;
 }
 
+function hasPlayableInstall(snapshot: LauncherSnapshot): boolean {
+  return Boolean(snapshot.instance.installedVersionLabel || snapshot.installState.installedFileId || snapshot.installState.lastSyncedAt);
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [logs, setLogs] = useState<LauncherLogEntry[]>([]);
@@ -108,7 +112,8 @@ export function App() {
   const [lastRunSummary, setLastRunSummary] = useState("Aguardando primeira execucao");
   const [updaterMessage, setUpdaterMessage] = useState("Sem updates pendentes");
   const [notice, setNotice] = useState("");
-  const [busyAction, setBusyAction] = useState<"" | "sync" | "play" | "login" | "save">("");
+  const [busyAction, setBusyAction] = useState<"" | "sync" | "login" | "save">("");
+  const [launchRequested, setLaunchRequested] = useState(false);
   const deferredLogs = useDeferredValue(logs);
 
   useEffect(() => {
@@ -131,17 +136,22 @@ export function App() {
         setSnapshot(nextSnapshot);
         setSettingsDraft(nextSnapshot.settings);
       });
+      if (nextSnapshot.installState.state !== "launching") {
+        setLaunchRequested(false);
+      }
     });
 
     const unsubscribeMinecraft = bridge.onMinecraftStatus((status) => {
       if (status.state === "started") {
-        setNotice("Minecraft iniciado.");
+        setNotice("Minecraft iniciado. Aguarde o carregamento da janela.");
       }
       if (status.state === "exited") {
+        setLaunchRequested(false);
         setLastRunSummary(`Sessao encerrada em ${formatDuration(status.durationMs)}`);
         setNotice("Minecraft encerrado com sucesso.");
       }
       if (status.state === "error") {
+        setLaunchRequested(false);
         setLastRunSummary(status.message);
         setNotice(status.message);
       }
@@ -162,7 +172,20 @@ export function App() {
   const activeAccount = useMemo(() => snapshot?.accounts[0], [snapshot]);
   const requiresLogin = Boolean(snapshot && snapshot.accounts.length === 0);
   const visibleScreen: ScreenId = activeScreen;
-  const canPlay = Boolean(snapshot && snapshot.accounts.length > 0 && snapshot.installState.state === "ready");
+  const isInstallBusy = snapshot?.installState.state === "syncing";
+  const isLaunching = Boolean(launchRequested || snapshot?.installState.state === "launching");
+  const canPlay = Boolean(
+    snapshot &&
+      snapshot.accounts.length > 0 &&
+      hasPlayableInstall(snapshot) &&
+      !isInstallBusy &&
+      !isLaunching
+  );
+  const playButtonLabel = isLaunching
+    ? snapshot?.installState.currentStep === "running"
+      ? "Minecraft aberto"
+      : "Abrindo..."
+    : "Play";
 
   const refreshLogs = async () => {
     const nextLogs = await bridge.getLogs();
@@ -219,6 +242,39 @@ export function App() {
     });
   };
 
+  const handlePlay = async () => {
+    if (requireLoginFirst()) {
+      return;
+    }
+    if (!activeAccount) {
+      setNotice("Selecione uma conta para iniciar.");
+      return;
+    }
+    if (isLaunching) {
+      setNotice("O Minecraft ja esta abrindo ou em execucao.");
+      return;
+    }
+    if (isInstallBusy) {
+      setNotice("Aguarde a sincronizacao do modpack terminar.");
+      return;
+    }
+    if (!hasPlayableInstall(snapshot)) {
+      setNotice("Atualize o modpack antes de iniciar.");
+      return;
+    }
+
+    setLaunchRequested(true);
+    setNotice("Abrindo Minecraft...");
+
+    try {
+      await bridge.play(activeAccount.id);
+      await refreshLogs();
+    } catch (error) {
+      setLaunchRequested(false);
+      setNotice(error instanceof Error ? error.message : "Falha ao iniciar o Minecraft");
+    }
+  };
+
   const renderPlayScreen = () => (
     <div className="space-y-6">
       <Panel title="Visao Geral" subtitle="Launcher dedicado a um unico modpack, com atualizacao incremental, login Microsoft oficial e runtime local.">
@@ -245,20 +301,11 @@ export function App() {
 
             <div className="mt-6 flex flex-wrap gap-3">
               <Button
-                onClick={() => {
-                  if (requireLoginFirst()) {
-                    return;
-                  }
-                  void runWithBusy("play", async () => {
-                    if (activeAccount) {
-                      await bridge.play(activeAccount.id);
-                    }
-                  });
-                }}
-                disabled={busyAction === "play" || (!requiresLogin && !canPlay)}
+                onClick={() => void handlePlay()}
+                disabled={!requiresLogin && !canPlay}
                 className="min-w-[180px]"
               >
-                {busyAction === "play" ? "Abrindo..." : "Play"}
+                {playButtonLabel}
               </Button>
               <Button
                 variant="secondary"
@@ -298,6 +345,19 @@ export function App() {
                 Pasta de logs
               </Button>
             </div>
+
+            {isLaunching && (
+              <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[#B49A66]">
+                {snapshot.installState.currentStep === "running"
+                  ? "Minecraft em execucao. Aguarde o jogo fechar para abrir outra instancia."
+                  : "O launcher esta preparando o Minecraft. Aguarde para evitar abrir duas vezes."}
+              </p>
+            )}
+            {!isLaunching && snapshot.installState.state === "error" && hasPlayableInstall(snapshot) && (
+              <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[#C7B182]">
+                A ultima tentativa falhou, mas voce pode tentar abrir novamente.
+              </p>
+            )}
           </div>
 
           <div className="space-y-4">

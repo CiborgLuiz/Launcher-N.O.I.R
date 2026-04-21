@@ -269,6 +269,7 @@ function registerIpcHandlers(): void {
         installLauncherUpdateIfReady();
       }
     });
+    await emitSnapshot();
   });
 
   ipcMain.handle("system:open-instance-folder", () => shell.openPath(service.getPaths().instanceRoot));
