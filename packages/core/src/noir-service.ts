@@ -10,6 +10,7 @@ import {
   saveSelectedAccount,
   SecretVault
 } from "../../auth/src";
+import os from "node:os";
 import {
   ensureLauncherLayout,
   getLauncherPaths,
@@ -35,9 +36,21 @@ export type ServiceOptions = {
   configPath?: string;
 };
 
+function getSafeMaximumRamMb(minimumRamMb: number): number {
+  const totalRamMb = Math.floor(os.totalmem() / 1024 / 1024);
+  const ratio = process.platform === "win32" ? 0.5 : 0.65;
+  const systemBudgetMb = Math.floor(totalRamMb * ratio);
+  return Math.max(minimumRamMb, Math.min(8192, systemBudgetMb));
+}
+
 function sanitizeSettings(settings: LauncherSettings): LauncherSettings {
-  const minimumRamMb = Math.max(2048, settings.minimumRamMb);
-  const maximumRamMb = Math.max(minimumRamMb, settings.maximumRamMb);
+  const requestedMinimumRamMb = Number.isFinite(settings.minimumRamMb) ? settings.minimumRamMb : 2048;
+  const requestedMaximumRamMb = Number.isFinite(settings.maximumRamMb) ? settings.maximumRamMb : requestedMinimumRamMb;
+  const minimumRamMb = Math.max(2048, Math.round(requestedMinimumRamMb));
+  const maximumRamMb = Math.max(
+    minimumRamMb,
+    Math.min(Math.round(requestedMaximumRamMb), getSafeMaximumRamMb(minimumRamMb))
+  );
   return {
     ...settings,
     minimumRamMb,
@@ -45,6 +58,23 @@ function sanitizeSettings(settings: LauncherSettings): LauncherSettings {
     resolutionWidth: Math.max(854, settings.resolutionWidth),
     resolutionHeight: Math.max(480, settings.resolutionHeight)
   };
+}
+
+function areSettingsEqual(left: LauncherSettings, right: LauncherSettings): boolean {
+  return (
+    left.minimumRamMb === right.minimumRamMb &&
+    left.maximumRamMb === right.maximumRamMb &&
+    left.resolutionWidth === right.resolutionWidth &&
+    left.resolutionHeight === right.resolutionHeight &&
+    left.fullscreen === right.fullscreen &&
+    left.minimizeOnGameLaunch === right.minimizeOnGameLaunch &&
+    left.javaPath === right.javaPath &&
+    left.instanceDirectory === right.instanceDirectory &&
+    left.autoUpdateLauncher === right.autoUpdateLauncher &&
+    left.autoUpdateModpack === right.autoUpdateModpack &&
+    left.updateChannel === right.updateChannel &&
+    left.telemetryEnabled === right.telemetryEnabled
+  );
 }
 
 export class NoirLauncherService {
@@ -70,7 +100,7 @@ export class NoirLauncherService {
   async initialize(): Promise<LauncherSnapshot> {
     await ensureLauncherLayout(this.paths);
     this.config = await loadLauncherConfigFile(this.options.configPath);
-    await loadSettings(this.config, this.paths);
+    await this.loadEffectiveSettings(this.config);
     await loadInstanceMetadata(this.config, this.paths);
     await loadInstallState(this.paths);
     await this.recoverInterruptedLaunchState();
@@ -127,9 +157,25 @@ export class NoirLauncherService {
     return this.config;
   }
 
+  private async loadEffectiveSettings(config: LauncherConfig): Promise<LauncherSettings> {
+    const settings = await loadSettings(config, this.paths);
+    const sanitized = sanitizeSettings(settings);
+    if (!areSettingsEqual(settings, sanitized)) {
+      await saveSettings(sanitized, this.paths);
+      await this.logger.log("launcher", "warn", "Configuracoes ajustadas para limites seguros", {
+        requestedMinimumRamMb: settings.minimumRamMb,
+        requestedMaximumRamMb: settings.maximumRamMb,
+        minimumRamMb: sanitized.minimumRamMb,
+        maximumRamMb: sanitized.maximumRamMb,
+        totalSystemRamMb: Math.floor(os.totalmem() / 1024 / 1024)
+      });
+    }
+    return sanitized;
+  }
+
   async getSnapshot(): Promise<LauncherSnapshot> {
     const config = await this.requireConfig();
-    const settings = await loadSettings(config, this.paths);
+    const settings = await this.loadEffectiveSettings(config);
     const installState = await loadInstallState(this.paths);
     const instance = await loadInstanceMetadata(config, this.paths);
     const accounts = await listAccountSummaries(this.vault);
@@ -252,7 +298,7 @@ export class NoirLauncherService {
       throw new Error("Conta nao encontrada");
     }
 
-    const settings = await loadSettings(config, this.paths);
+    const settings = await this.loadEffectiveSettings(config);
     const instance = await loadInstanceMetadata(config, this.paths);
     await saveSelectedAccount(account.id);
     await this.updateInstallState({

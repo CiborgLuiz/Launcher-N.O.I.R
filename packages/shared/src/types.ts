@@ -189,9 +189,14 @@ export function parseLauncherConfig(input: unknown): LauncherConfig {
 }
 
 export function createDefaultSettings(config: LauncherConfig, instanceDirectory: string): LauncherSettings {
+  const defaultMaximumRamMb = Math.max(
+    config.minimumRamMb,
+    Math.min(config.recommendedRamMb, 4096)
+  );
+
   return {
     minimumRamMb: config.minimumRamMb,
-    maximumRamMb: Math.max(config.recommendedRamMb, config.minimumRamMb),
+    maximumRamMb: defaultMaximumRamMb,
     resolutionWidth: 1600,
     resolutionHeight: 900,
     fullscreen: false,

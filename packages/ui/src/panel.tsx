@@ -8,11 +8,11 @@ type PanelProps = React.PropsWithChildren<{
 
 export function Panel({ children, className = "", title, subtitle }: PanelProps) {
   return (
-    <section className={`rounded-[28px] border border-[#C7A24A]/14 bg-[rgba(20,17,12,0.9)] p-6 shadow-card backdrop-blur-xl ${className}`}>
+    <section className={`animate-panel-in rounded-lg border border-[#C9A24E]/16 bg-[linear-gradient(180deg,rgba(14,14,14,0.94),rgba(5,5,5,0.92))] p-6 shadow-card backdrop-blur-xl ${className}`}>
       {(title || subtitle) && (
         <header className="mb-5">
-          {title && <h2 className="font-display text-lg uppercase tracking-[0.3em] text-[#F6F0E1]">{title}</h2>}
-          {subtitle && <p className="mt-2 max-w-xl text-sm text-[#C7B182]/70">{subtitle}</p>}
+          {title && <h2 className="font-display text-lg uppercase tracking-[0.22em] text-[#F7E8C3]">{title}</h2>}
+          {subtitle && <p className="mt-2 max-w-xl text-sm text-[#CBB26B]/70">{subtitle}</p>}
         </header>
       )}
       {children}

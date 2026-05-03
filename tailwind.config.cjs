@@ -8,15 +8,16 @@ module.exports = {
     extend: {
       colors: {
         noir: {
-          background: "#090806",
-          surface: "#14110C",
-          panel: "#1A1610",
-          gold: "#C7A24A",
-          brass: "#8E6A22",
-          sand: "#E9D8A6",
-          ink: "#040402",
-          mist: "#F6F0E1",
-          muted: "#A58E63",
+          background: "#050505",
+          surface: "#0C0C0C",
+          panel: "#111111",
+          gold: "#C9A24E",
+          brass: "#B98A35",
+          sand: "#E8CB83",
+          ink: "#050505",
+          mist: "#F7E8C3",
+          muted: "#B89A55",
+          bronze: "#6B521F",
           success: "#8FCB8C",
           error: "#E28A74"
         }
@@ -26,12 +27,12 @@ module.exports = {
         body: ["'Space Grotesk'", "'Segoe UI'", "sans-serif"]
       },
       boxShadow: {
-        glow: "0 0 40px rgba(199, 162, 74, 0.22)",
+        glow: "0 0 38px rgba(201, 162, 78, 0.24), 0 0 18px rgba(157, 120, 48, 0.16)",
         card: "0 18px 48px rgba(0, 0, 0, 0.45)"
       },
       backgroundImage: {
         "noir-grid":
-          "linear-gradient(rgba(199,162,74,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(199,162,74,0.08) 1px, transparent 1px)"
+          "linear-gradient(rgba(201,162,78,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(157,120,48,0.08) 1px, transparent 1px)"
       }
     }
   },

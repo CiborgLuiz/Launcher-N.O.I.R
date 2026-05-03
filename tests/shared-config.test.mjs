@@ -55,6 +55,7 @@ test("parseLauncherSettings merges overrides with defaults", () => {
     },
     "/tmp/.noirlauncher/noir-smp"
   );
+  assert.equal(defaults.maximumRamMb, 4096);
 
   const parsed = parseLauncherSettings(
     {

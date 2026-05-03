@@ -1,5 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import crypto from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import fs from "fs-extra";
 import path from "node:path";
 import { getLauncherPaths, LauncherPaths } from "../../instance-manager/src";
@@ -42,10 +44,18 @@ async function withRetry<T>(action: () => Promise<T>, attempts = 3, baseDelayMs 
   throw lastError;
 }
 
-function sha1File(filePath: string): string {
-  const hash = crypto.createHash("sha1");
-  hash.update(fs.readFileSync(filePath));
-  return hash.digest("hex");
+async function sha1File(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha1");
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+function createDownloadTempPath(targetPath: string): string {
+  return `${targetPath}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.download`;
 }
 
 export function buildCurseForgeCdnUrl(fileId: number, fileName: string, host = "edge.forgecdn.net"): string {
@@ -130,36 +140,47 @@ export class CurseForgeClient {
     const candidates = Array.isArray(url) ? url : [url];
 
     if (await fs.pathExists(target)) {
-      if (!expectedSha1 || sha1File(target).toLowerCase() === expectedSha1.toLowerCase()) {
+      if (!expectedSha1 || (await sha1File(target)).toLowerCase() === expectedSha1.toLowerCase()) {
         return target;
       }
+      await fs.remove(target);
     }
 
     let lastError: unknown;
     for (const candidate of candidates) {
       try {
-        const response = await withRetry(
-          () =>
-            axios.get(candidate, {
-              responseType: "arraybuffer",
-              timeout: 60_000,
-              maxRedirects: 5,
-              headers: {
-                "User-Agent": "NOIR Launcher/0.2.0",
-                Accept: "*/*"
+        await withRetry(
+          async () => {
+            const tempPath = createDownloadTempPath(target);
+            try {
+              const response = await axios.get(candidate, {
+                responseType: "stream",
+                timeout: 60_000,
+                maxRedirects: 5,
+                headers: {
+                  "User-Agent": "NOIR Launcher/0.2.0",
+                  Accept: "*/*"
+                }
+              });
+
+              await pipeline(response.data as NodeJS.ReadableStream, createWriteStream(tempPath));
+
+              if (expectedSha1) {
+                const fileHash = await sha1File(tempPath);
+                if (fileHash.toLowerCase() !== expectedSha1.toLowerCase()) {
+                  throw new Error(`Hash invalido para ${filename}`);
+                }
               }
-            }),
+
+              await fs.move(tempPath, target, { overwrite: true });
+            } catch (error) {
+              await fs.remove(tempPath);
+              throw error;
+            }
+          },
           3,
           800
         );
-        await fs.writeFile(target, response.data);
-
-        if (expectedSha1) {
-          const fileHash = sha1File(target);
-          if (fileHash.toLowerCase() !== expectedSha1.toLowerCase()) {
-            throw new Error(`Hash invalido para ${filename}`);
-          }
-        }
 
         return target;
       } catch (error) {

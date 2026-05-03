@@ -1,7 +1,11 @@
 import fs from "fs-extra";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import { getLauncherPaths, LauncherPaths } from "../../instance-manager/src";
 import { LogCategory, LogLevel, LauncherLogEntry, parseLogEntry, serializeLogEntry } from "../../shared/src";
+
+const MAX_LOG_ENTRIES = 800;
+const MAX_LOG_FILE_BYTES = 512 * 1024;
 
 function resolveLogFile(category: LogCategory, paths: LauncherPaths): string {
   switch (category) {
@@ -47,7 +51,9 @@ export class FileLogger {
         continue;
       }
 
-      const content = await fs.readFile(filePath, "utf8");
+      const stat = await fs.stat(filePath);
+      const start = Math.max(0, stat.size - MAX_LOG_FILE_BYTES);
+      const content = await readLogTail(filePath, start);
       for (const line of content.split(/\r?\n/)) {
         if (!line.trim()) {
           continue;
@@ -65,6 +71,26 @@ export class FileLogger {
       }
     }
 
-    return entries.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+    return entries
+      .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+      .slice(-MAX_LOG_ENTRIES);
+  }
+}
+
+async function readLogTail(filePath: string, start: number): Promise<string> {
+  const file = await open(filePath, "r");
+  try {
+    const stat = await file.stat();
+    const length = stat.size - start;
+    const buffer = Buffer.alloc(length);
+    await file.read(buffer, 0, length, start);
+    const text = buffer.toString("utf8");
+    if (start === 0) {
+      return text;
+    }
+    const firstNewline = text.indexOf("\n");
+    return firstNewline >= 0 ? text.slice(firstNewline + 1) : text;
+  } finally {
+    await file.close();
   }
 }

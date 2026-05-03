@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { createReadStream } from "node:fs";
 import fs from "fs-extra";
 import path from "node:path";
 import { CurseForgeClient, CurseForgeFile, readManifestFromZip } from "../../curseforge/src";
@@ -22,6 +23,16 @@ type SyncOptions = {
 };
 
 const USER_PRESERVED_PREFIXES = ["config/", "resourcepacks/", "shaderpacks/", "saves/"];
+
+async function sha1File(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha1");
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", () => resolve(hash.digest("hex")));
+  });
+}
 
 async function emitProgress(
   options: SyncOptions,
@@ -84,16 +95,30 @@ async function runConcurrent<T>(items: T[], concurrency: number, worker: (item: 
   }
 }
 
+async function mapConcurrent<T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  await runConcurrent(items, concurrency, async (item, index) => {
+    results[index] = await worker(item, index);
+  });
+  return results;
+}
+
+function getNetworkConcurrency(): number {
+  return process.platform === "win32" ? 2 : 3;
+}
+
 async function enrichLockEntries(client: CurseForgeClient, lock: ModpackLock): Promise<ModpackLock> {
-  const entries = await Promise.all(
-    lock.files.map(async (entry) => {
+  const entries = await mapConcurrent(
+    lock.files,
+    getNetworkConcurrency(),
+    async (entry) => {
       const info = await client.getFileInfo(entry.projectId, entry.fileId);
       return {
         ...entry,
         fileName: info.fileName,
         sha1: info.hashes?.find((hash) => hash.algo === 1)?.value
       };
-    })
+    }
   );
   return {
     ...lock,
@@ -122,20 +147,29 @@ async function downloadManifestMods(
   progressBase = 40,
   onProgress?: (message: string, progress: number) => Promise<void>
 ): Promise<void> {
-  await runConcurrent(lock.files, 4, async (entry, index) => {
+  let completed = 0;
+  const total = Math.max(lock.files.length, 1);
+
+  const reportProgress = async (message: string): Promise<number> => {
+    completed += 1;
+    const progress = Math.min(90, progressBase + Math.round((completed / total) * 50));
+    await onProgress?.(message, progress);
+    return progress;
+  };
+
+  await runConcurrent(lock.files, getNetworkConcurrency(), async (entry, index) => {
     const targetName = entry.fileName || `${entry.projectId}-${entry.fileId}.jar`;
     const targetPath = path.join(paths.modsDir, targetName);
-    const progress = Math.min(90, progressBase + Math.round(((index + 1) / Math.max(lock.files.length, 1)) * 50));
     if (await fs.pathExists(targetPath)) {
       if (!entry.sha1) {
         await logger.log("install", "info", `Mod preservado: ${path.basename(targetPath)}`);
-        await onProgress?.(`Verificando mod ${index + 1}/${lock.files.length}: ${path.basename(targetPath)}`, progress);
+        await reportProgress(`Verificando mod ${index + 1}/${lock.files.length}: ${path.basename(targetPath)}`);
         return;
       } else {
-        const currentHash = crypto.createHash("sha1").update(await fs.readFile(targetPath)).digest("hex");
+        const currentHash = await sha1File(targetPath);
         if (currentHash.toLowerCase() === entry.sha1.toLowerCase()) {
           await logger.log("install", "info", `Mod mantido em cache local: ${path.basename(targetPath)}`);
-          await onProgress?.(`Verificando mod ${index + 1}/${lock.files.length}: ${path.basename(targetPath)}`, progress);
+          await reportProgress(`Verificando mod ${index + 1}/${lock.files.length}: ${path.basename(targetPath)}`);
           return;
         }
       }
@@ -145,9 +179,9 @@ async function downloadManifestMods(
       const { info, cachedPath } = await client.downloadProjectFile(entry.projectId, entry.fileId);
       await fs.copyFile(cachedPath, path.join(paths.modsDir, info.fileName));
       await logger.log("install", "info", `Mod sincronizado: ${info.fileName}`);
-      await onProgress?.(`Sincronizando mod ${index + 1}/${lock.files.length}: ${info.fileName}`, progress);
+      const progress = await reportProgress(`Sincronizando mod ${index + 1}/${lock.files.length}: ${info.fileName}`);
       await logger.log("install", "info", "Progresso de download de mods", {
-        completed: index + 1,
+        completed,
         total: lock.files.length,
         progress
       });

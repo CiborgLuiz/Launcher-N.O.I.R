@@ -1,4 +1,5 @@
 import { Authenticator, Client } from "minecraft-launcher-core";
+import path from "node:path";
 import { StoredAccount, StoredMicrosoftAccount } from "../../shared/src";
 import { LauncherSettings, InstanceMetadata } from "../../shared/src";
 import { LauncherPaths } from "../../instance-manager/src";
@@ -101,6 +102,17 @@ export async function launchMinecraftInstance(
         min: `${params.settings.minimumRamMb}M`,
         max: `${params.settings.maximumRamMb}M`
       },
+      cache: params.paths.cacheDir,
+      timeout: 120_000,
+      overrides: {
+        cwd: params.paths.instanceRoot,
+        gameDirectory: params.paths.instanceRoot,
+        libraryRoot: params.paths.librariesDir,
+        assetRoot: params.paths.assetsDir,
+        natives: path.join(params.paths.nativesDir, params.instance.minecraftVersion),
+        detached: false,
+        maxSockets: process.platform === "win32" ? 2 : 4
+      },
       window: {
         width: params.settings.resolutionWidth,
         height: params.settings.resolutionHeight,
@@ -116,7 +128,13 @@ export async function launchMinecraftInstance(
           : undefined,
       fabric: params.instance.modLoader === "fabric" ? params.instance.modLoaderVersion : undefined,
       quilt: params.instance.modLoader === "quilt" ? params.instance.modLoaderVersion : undefined,
-      neoforge: params.instance.modLoader === "neoforge" ? params.instance.modLoaderVersion : undefined
+      neoforge: params.instance.modLoader === "neoforge" ? params.instance.modLoaderVersion : undefined,
+      quickPlay: params.instance.serverAddress
+        ? {
+            type: "multiplayer",
+            identifier: params.instance.serverAddress
+          }
+        : undefined
     } as never);
 
     const hasValidProcess = Boolean(minecraft && typeof minecraft.once === "function");

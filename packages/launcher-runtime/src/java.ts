@@ -33,6 +33,19 @@ async function readJavaMajorVersion(javaPath: string): Promise<number | null> {
   }
 }
 
+async function ensureExecutable(javaPath: string): Promise<void> {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  try {
+    await fs.chmod(javaPath, 0o755);
+  } catch {
+    // Some user-provided Java paths may live in read-only locations. The launch
+    // check below will still report a clear error if the binary cannot execute.
+  }
+}
+
 async function findSystemJava(): Promise<string | null> {
   const javaHome = process.env.JAVA_HOME;
   if (javaHome) {
@@ -57,6 +70,7 @@ async function ensureDownloadedJava(version: number, paths: LauncherPaths): Prom
   const binaryName = process.platform === "win32" ? "java.exe" : "java";
   const directJava = path.join(runtimeDir, "bin", binaryName);
   if (await fs.pathExists(directJava)) {
+    await ensureExecutable(directJava);
     return directJava;
   }
 
@@ -86,11 +100,13 @@ async function ensureDownloadedJava(version: number, paths: LauncherPaths): Prom
   for (const candidate of candidates) {
     const resolved = path.join(runtimeDir, candidate, "bin", binaryName);
     if (await fs.pathExists(resolved)) {
+      await ensureExecutable(resolved);
       return resolved;
     }
   }
 
   if (await fs.pathExists(directJava)) {
+    await ensureExecutable(directJava);
     return directJava;
   }
   throw new Error("Java baixado, mas o executavel nao foi encontrado");

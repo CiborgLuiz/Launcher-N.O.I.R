@@ -38,13 +38,13 @@ const mockSnapshot: LauncherSnapshot = {
       productName: "NOIR SMP",
       shortName: "NOIR",
       tagline: "Nucleo de operações e investigações de rupturas.",
-      accent: "#3F00FF",
+      accent: "#C9A24E",
       background: "#0A0A0A"
     }
   },
   settings: {
     minimumRamMb: 4096,
-    maximumRamMb: 6144,
+    maximumRamMb: 4096,
     resolutionWidth: 1600,
     resolutionHeight: 900,
     fullscreen: false,

@@ -55,7 +55,7 @@ function Avatar({
   }, [candidates]);
 
   if (!account || showFallback || !candidates[currentIndex]) {
-    return <div className={`${className} bg-[#100D09]`} />;
+    return <div className={`${className} bg-[#080808]`} />;
   }
 
   return (
@@ -102,6 +102,26 @@ function hasPlayableInstall(snapshot: LauncherSnapshot): boolean {
   return Boolean(snapshot.instance.installedVersionLabel || snapshot.installState.installedFileId || snapshot.installState.lastSyncedAt);
 }
 
+function BootSplash({ ready }: { ready: boolean }) {
+  return (
+    <div className="noir-splash flex min-h-screen items-center justify-center overflow-hidden px-6 text-[#F7E8C3]">
+      <div className="noir-splash-grid" />
+      <div className="relative z-10 flex flex-col items-center">
+        <div className="noir-logo-orbit">
+          <img src={logoMark} alt="NOIR" className="h-32 w-32 rounded-lg border border-[#C9A24E]/20 bg-[#050505] object-cover p-2 shadow-glow" />
+        </div>
+        <img src={wordmark} alt="NOIR Launcher" className="mt-8 h-16 w-auto max-w-[320px] object-contain" />
+        <div className="mt-8 h-1 w-72 overflow-hidden rounded-full bg-[#1A160C]">
+          <div className={`noir-loading-bar h-full rounded-full ${ready ? "w-full" : "w-2/3"}`} />
+        </div>
+        <div className="mt-5 text-[11px] uppercase tracking-[0.3em] text-[#C9A24E]">
+          {ready ? "Interface pronta" : "Inicializando launcher"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<LauncherSnapshot | null>(null);
   const [logs, setLogs] = useState<LauncherLogEntry[]>([]);
@@ -114,7 +134,13 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [busyAction, setBusyAction] = useState<"" | "sync" | "login" | "save">("");
   const [launchRequested, setLaunchRequested] = useState(false);
+  const [bootVisible, setBootVisible] = useState(true);
   const deferredLogs = useDeferredValue(logs);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBootVisible(false), 1350);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -194,6 +220,20 @@ export function App() {
     });
   };
 
+  const handleCopyLogs = async () => {
+    const payload = deferredLogs
+      .slice(-300)
+      .map((entry) => JSON.stringify(entry))
+      .join("\n");
+
+    try {
+      await navigator.clipboard.writeText(payload);
+      setNotice("Logs copiados.");
+    } catch {
+      setNotice("Nao foi possivel copiar os logs.");
+    }
+  };
+
   const runWithBusy = async (action: typeof busyAction, callback: () => Promise<void>) => {
     setBusyAction(action);
     setNotice("");
@@ -207,8 +247,8 @@ export function App() {
     }
   };
 
-  if (!snapshot || !settingsDraft) {
-    return <div className="flex min-h-screen items-center justify-center text-[#C7B182]">Carregando launcher...</div>;
+  if (!snapshot || !settingsDraft || bootVisible) {
+    return <BootSplash ready={Boolean(snapshot && settingsDraft)} />;
   }
 
   const requireLoginFirst = () => {
@@ -277,15 +317,15 @@ export function App() {
 
   const renderPlayScreen = () => (
     <div className="space-y-6">
-      <Panel title="Visao Geral" subtitle="Launcher dedicado a um unico modpack, com atualizacao incremental, login Microsoft oficial e runtime local.">
-        <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+      <Panel title="Visao Geral" subtitle="Status operacional da instancia NOIR.">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.28em] text-[#B49A66]">Instancia dedicada</div>
-            <h1 className="mt-3 font-display text-4xl uppercase tracking-[0.18em] text-[#F6F0E1] md:text-5xl">
+            <div className="text-[11px] uppercase tracking-[0.28em] text-[#B89A55]">Instancia dedicada</div>
+            <h1 className="mt-3 font-display text-4xl uppercase tracking-[0.18em] text-[#F7E8C3] md:text-5xl">
               {snapshot.config.modpackName}
             </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#D5C39A]">
-              Tudo foi organizado para um fluxo direto: verificar launcher, verificar modpack, confirmar conta, revisar status e iniciar o jogo.
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#CBB26B]">
+              {snapshot.instance.serverAddress || snapshot.config.branding.tagline}
             </p>
 
             <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -347,7 +387,7 @@ export function App() {
             </div>
 
             {isLaunching && (
-              <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[#B49A66]">
+              <p className="mt-3 text-xs uppercase tracking-[0.18em] text-[#B89A55]">
                 {snapshot.installState.currentStep === "running"
                   ? "Minecraft em execucao. Aguarde o jogo fechar para abrir outra instancia."
                   : "O launcher esta preparando o Minecraft. Aguarde para evitar abrir duas vezes."}
@@ -361,27 +401,27 @@ export function App() {
           </div>
 
           <div className="space-y-4">
-            <div className="rounded-[26px] border border-[#C7A24A]/14 bg-[#18130E] p-5">
-              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Conta ativa</div>
+            <div className="rounded-lg border border-[#C9A24E]/14 bg-[#111111] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Conta ativa</div>
               <div className="mt-4 flex items-center gap-4">
                 {activeAccount ? (
                   <Avatar
                     account={activeAccount}
                     size={128}
-                    className="h-16 w-16 rounded-2xl border border-[#C7A24A]/20 object-cover"
+                    className="h-16 w-16 rounded-lg border border-[#C9A24E]/20 object-cover"
                   />
                 ) : (
-                  <div className="h-16 w-16 rounded-2xl border border-[#C7A24A]/16 bg-[#100D09]" />
+                  <div className="h-16 w-16 rounded-lg border border-[#C9A24E]/16 bg-[#080808]" />
                 )}
                 <div>
-                  <div className="text-lg font-semibold text-[#F6F0E1]">{activeAccount?.username || "Nenhuma conta selecionada"}</div>
-                  <div className="mt-1 text-xs uppercase tracking-[0.22em] text-[#B49A66]">{activeAccount?.type || "Sem login"}</div>
+                  <div className="text-lg font-semibold text-[#F7E8C3]">{activeAccount?.username || "Nenhuma conta selecionada"}</div>
+                  <div className="mt-1 text-xs uppercase tracking-[0.22em] text-[#B89A55]">{activeAccount?.type || "Sem login"}</div>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-[26px] border border-[#C7A24A]/14 bg-[#18130E] p-5">
-              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Status atual</div>
+            <div className="rounded-lg border border-[#C9A24E]/14 bg-[#111111] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Status atual</div>
               <div className="mt-3 space-y-3">
                 <StatusPill label="Launcher update" value={updaterMessage} tone="warning" />
                 <StatusPill label="Ultima sessao" value={lastRunSummary} />
@@ -400,8 +440,8 @@ export function App() {
         title={requiresLogin ? "Entrar" : "Contas"}
         subtitle={
           requiresLogin
-            ? "Escolha um metodo para continuar no launcher. Use Original para conta Microsoft ou Pirata para nickname offline."
-            : "Gerencie a conta ativa e alterne entre login Original e Pirata."
+            ? "Acesso necessario para a instancia."
+            : "Contas locais e sessao ativa."
         }
       >
         <div className="flex flex-wrap gap-3">
@@ -416,32 +456,32 @@ export function App() {
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <div className="space-y-4">
             {snapshot.accounts.length === 0 && (
-              <div className="rounded-[24px] border border-[#C7A24A]/12 bg-[#18130E] px-5 py-6 text-[#B49A66]">
+              <div className="rounded-lg border border-[#C9A24E]/12 bg-[#111111] px-5 py-6 text-[#B89A55]">
                 Nenhuma conta salva ainda.
               </div>
             )}
 
             {snapshot.accounts.map((account, index) => (
-              <div key={account.id} className="rounded-[24px] border border-[#C7A24A]/12 bg-[#18130E] p-5">
+              <div key={account.id} className="rounded-lg border border-[#C9A24E]/12 bg-[#111111] p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
                     {account ? (
                       <Avatar
                         account={account}
                         size={112}
-                        className="h-14 w-14 rounded-2xl border border-[#C7A24A]/18 object-cover"
+                        className="h-14 w-14 rounded-lg border border-[#C9A24E]/18 object-cover"
                       />
                     ) : (
-                      <div className="h-14 w-14 rounded-2xl border border-[#C7A24A]/16 bg-[#100D09]" />
+                      <div className="h-14 w-14 rounded-lg border border-[#C9A24E]/16 bg-[#080808]" />
                     )}
                     <div>
-                      <div className="text-lg font-semibold text-[#F6F0E1]">{account.username}</div>
-                      <div className="mt-1 text-xs uppercase tracking-[0.22em] text-[#B49A66]">{account.type}</div>
-                      <div className="mt-2 text-xs text-[#D5C39A]">{account.uuid}</div>
+                      <div className="text-lg font-semibold text-[#F7E8C3]">{account.username}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.22em] text-[#B89A55]">{account.type}</div>
+                      <div className="mt-2 text-xs text-[#CBB26B]">{account.uuid}</div>
                     </div>
                   </div>
 
-                  {index === 0 && <span className="rounded-full bg-[#C7A24A]/12 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-[#E9D8A6]">Ativa</span>}
+                  {index === 0 && <span className="rounded-full bg-[#C9A24E]/12 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-[#E8CB83]">Ativa</span>}
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-3">
@@ -471,24 +511,20 @@ export function App() {
           </div>
 
           <div className="space-y-4">
-            <div className="rounded-[24px] border border-[#C7A24A]/12 bg-[#18130E] p-5">
-              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Original</div>
-              <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
-                O login Microsoft agora abre em uma janela propria do launcher, sem depender de aba externa no navegador.
-              </p>
+            <div className="rounded-lg border border-[#C9A24E]/12 bg-[#111111] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Original</div>
+              <p className="mt-3 text-sm leading-7 text-[#CBB26B]">Sessao oficial Microsoft.</p>
             </div>
 
-            <div className="rounded-[24px] border border-[#C7A24A]/16 bg-[#18130E] p-5">
-              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Pirata</div>
-              <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
-                Entre com um nickname offline para iniciar rapido sem autenticar uma conta Microsoft.
-              </p>
+            <div className="rounded-lg border border-[#C9A24E]/16 bg-[#111111] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Pirata</div>
+              <p className="mt-3 text-sm leading-7 text-[#CBB26B]">Perfil offline local.</p>
               <div className="mt-4 flex gap-3">
                 <input
                   value={offlineNickname}
                   onChange={(event) => setOfflineNickname(event.target.value)}
                   placeholder="Digite seu nickname"
-                  className="flex-1 rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-sm text-[#F6F0E1] outline-none placeholder:text-[#7F6D48]"
+                  className="flex-1 rounded-lg border border-[#C9A24E]/14 bg-[#080808] px-4 py-3 text-sm text-[#F7E8C3] outline-none placeholder:text-[#8A7135]"
                 />
                 <Button
                   variant="secondary"
@@ -507,57 +543,57 @@ export function App() {
 
   const renderSettingsScreen = () => (
     <div className="space-y-6">
-      <Panel title="Ajustes" subtitle="Controle memoria, resolucao, Java e politicas de update do launcher.">
+      <Panel title="Ajustes" subtitle="Memoria, resolucao, Java e updates.">
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">RAM minima</span>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">RAM minima</span>
             <input
               type="number"
               value={settingsDraft.minimumRamMb}
               onChange={(event) => setSettingsDraft({ ...settingsDraft, minimumRamMb: Number(event.target.value) })}
-              className="w-full rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-[#F6F0E1]"
+              className="w-full rounded-lg border border-[#C9A24E]/14 bg-[#080808] px-4 py-3 text-[#F7E8C3]"
             />
           </label>
           <label className="space-y-2">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">RAM maxima</span>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">RAM maxima</span>
             <input
               type="number"
               value={settingsDraft.maximumRamMb}
               onChange={(event) => setSettingsDraft({ ...settingsDraft, maximumRamMb: Number(event.target.value) })}
-              className="w-full rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-[#F6F0E1]"
+              className="w-full rounded-lg border border-[#C9A24E]/14 bg-[#080808] px-4 py-3 text-[#F7E8C3]"
             />
           </label>
           <label className="space-y-2">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Largura</span>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Largura</span>
             <input
               type="number"
               value={settingsDraft.resolutionWidth}
               onChange={(event) => setSettingsDraft({ ...settingsDraft, resolutionWidth: Number(event.target.value) })}
-              className="w-full rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-[#F6F0E1]"
+              className="w-full rounded-lg border border-[#C9A24E]/14 bg-[#080808] px-4 py-3 text-[#F7E8C3]"
             />
           </label>
           <label className="space-y-2">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Altura</span>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Altura</span>
             <input
               type="number"
               value={settingsDraft.resolutionHeight}
               onChange={(event) => setSettingsDraft({ ...settingsDraft, resolutionHeight: Number(event.target.value) })}
-              className="w-full rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-[#F6F0E1]"
+              className="w-full rounded-lg border border-[#C9A24E]/14 bg-[#080808] px-4 py-3 text-[#F7E8C3]"
             />
           </label>
           <label className="space-y-2 lg:col-span-2">
-            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Java manual</span>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Java manual</span>
             <input
               value={settingsDraft.javaPath}
               onChange={(event) => setSettingsDraft({ ...settingsDraft, javaPath: event.target.value })}
               placeholder="Opcional"
-              className="w-full rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-[#F6F0E1] placeholder:text-[#7F6D48]"
+              className="w-full rounded-lg border border-[#C9A24E]/14 bg-[#080808] px-4 py-3 text-[#F7E8C3] placeholder:text-[#8A7135]"
             />
           </label>
         </div>
 
         <div className="mt-6 grid gap-3 lg:grid-cols-2">
-          <label className="flex items-center justify-between rounded-2xl border border-[#C7A24A]/12 bg-[#18130E] px-4 py-3 text-[#F6F0E1]">
+          <label className="flex items-center justify-between rounded-lg border border-[#C9A24E]/12 bg-[#111111] px-4 py-3 text-[#F7E8C3]">
             <span>Fullscreen</span>
             <input
               type="checkbox"
@@ -565,7 +601,7 @@ export function App() {
               onChange={(event) => setSettingsDraft({ ...settingsDraft, fullscreen: event.target.checked })}
             />
           </label>
-          <label className="flex items-center justify-between rounded-2xl border border-[#C7A24A]/12 bg-[#18130E] px-4 py-3 text-[#F6F0E1]">
+          <label className="flex items-center justify-between rounded-lg border border-[#C9A24E]/12 bg-[#111111] px-4 py-3 text-[#F7E8C3]">
             <span>Minimizar o launcher quando o jogo abrir</span>
             <input
               type="checkbox"
@@ -573,7 +609,7 @@ export function App() {
               onChange={(event) => setSettingsDraft({ ...settingsDraft, minimizeOnGameLaunch: event.target.checked })}
             />
           </label>
-          <label className="flex items-center justify-between rounded-2xl border border-[#C7A24A]/12 bg-[#18130E] px-4 py-3 text-[#F6F0E1]">
+          <label className="flex items-center justify-between rounded-lg border border-[#C9A24E]/12 bg-[#111111] px-4 py-3 text-[#F7E8C3]">
             <span>Auto update do launcher</span>
             <input
               type="checkbox"
@@ -581,7 +617,7 @@ export function App() {
               onChange={(event) => setSettingsDraft({ ...settingsDraft, autoUpdateLauncher: event.target.checked })}
             />
           </label>
-          <label className="flex items-center justify-between rounded-2xl border border-[#C7A24A]/12 bg-[#18130E] px-4 py-3 text-[#F6F0E1]">
+          <label className="flex items-center justify-between rounded-lg border border-[#C9A24E]/12 bg-[#111111] px-4 py-3 text-[#F7E8C3]">
             <span>Auto update do modpack</span>
             <input
               type="checkbox"
@@ -589,7 +625,7 @@ export function App() {
               onChange={(event) => setSettingsDraft({ ...settingsDraft, autoUpdateModpack: event.target.checked })}
             />
           </label>
-          <label className="flex items-center justify-between rounded-2xl border border-[#C7A24A]/12 bg-[#18130E] px-4 py-3 text-[#F6F0E1]">
+          <label className="flex items-center justify-between rounded-lg border border-[#C9A24E]/12 bg-[#111111] px-4 py-3 text-[#F7E8C3]">
             <span>Telemetria</span>
             <input
               type="checkbox"
@@ -622,7 +658,7 @@ export function App() {
 
   const renderLogsScreen = () => (
     <div className="space-y-6">
-      <Panel title="Logs" subtitle="Observabilidade por categoria para launcher, autenticacao, instalacao e runtime do Minecraft.">
+      <Panel title="Logs" subtitle="Eventos recentes por categoria.">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
             {LOG_TABS.map((tab) => (
@@ -631,8 +667,8 @@ export function App() {
                 onClick={() => setActiveLogCategory(tab)}
                 className={`rounded-full px-4 py-2 text-xs uppercase tracking-[0.22em] transition ${
                   activeLogCategory === tab
-                    ? "bg-[#C7A24A] text-[#090806]"
-                    : "border border-[#C7A24A]/16 bg-[#18130E] text-[#D5C39A] hover:border-[#C7A24A]/34"
+                    ? "bg-[#C9A24E] text-[#090806]"
+                    : "border border-[#C9A24E]/16 bg-[#111111] text-[#CBB26B] hover:border-[#C9A24E]/34"
                 }`}
               >
                 {tab}
@@ -646,7 +682,7 @@ export function App() {
             </Button>
             <Button
               variant="secondary"
-              onClick={() => navigator.clipboard.writeText(deferredLogs.map((entry) => JSON.stringify(entry)).join("\n"))}
+              onClick={() => void handleCopyLogs()}
             >
               Copiar
             </Button>
@@ -664,37 +700,31 @@ export function App() {
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-[rgba(5,4,2,0.82)] px-5 py-6 backdrop-blur-md">
-        <div className="w-full max-w-4xl rounded-[32px] border border-[#C7A24A]/20 bg-[linear-gradient(180deg,rgba(24,19,14,0.98),rgba(12,9,6,0.98))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.48)] md:p-8">
-          <div className="text-[10px] uppercase tracking-[0.28em] text-[#B49A66]">Acesso obrigatorio</div>
-          <h2 className="mt-4 font-display text-3xl uppercase tracking-[0.16em] text-[#F6F0E1] md:text-4xl">
+        <div className="w-full max-w-4xl rounded-lg border border-[#C9A24E]/20 bg-[linear-gradient(180deg,rgba(24,19,14,0.98),rgba(12,9,6,0.98))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.48)] md:p-8">
+          <div className="text-[10px] uppercase tracking-[0.28em] text-[#B89A55]">Acesso obrigatorio</div>
+          <h2 className="mt-4 font-display text-3xl uppercase tracking-[0.16em] text-[#F7E8C3] md:text-4xl">
             Voce precisa logar primeiro
           </h2>
-          <p className="mt-4 max-w-3xl text-sm leading-7 text-[#D5C39A]">
-            Escolha um metodo de acesso para liberar o launcher. Enquanto nenhuma conta estiver conectada, o restante da interface fica travado.
-          </p>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-[#CBB26B]">Acesso necessario para perfis, modpack e runtime.</p>
 
           <div className="mt-8 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-[26px] border border-[#C7A24A]/14 bg-[#18130E] p-5">
-              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Original</div>
-              <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
-                Entre com sua conta Microsoft em uma janela dedicada do launcher.
-              </p>
+            <div className="rounded-lg border border-[#C9A24E]/14 bg-[#111111] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Original</div>
+              <p className="mt-3 text-sm leading-7 text-[#CBB26B]">Conta Microsoft oficial.</p>
               <Button onClick={() => void handleMicrosoftLogin()} disabled={busyAction === "login"} className="mt-5 min-w-[180px]">
                 {busyAction === "login" ? "Aguardando..." : "Entrar com Microsoft"}
               </Button>
             </div>
 
-            <div className="rounded-[26px] border border-[#C7A24A]/14 bg-[#18130E] p-5">
-              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B49A66]">Pirata</div>
-              <p className="mt-3 text-sm leading-7 text-[#D5C39A]">
-                Use um nickname offline para entrar rapido sem autenticar uma conta Microsoft.
-              </p>
+            <div className="rounded-lg border border-[#C9A24E]/14 bg-[#111111] p-5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[#B89A55]">Pirata</div>
+              <p className="mt-3 text-sm leading-7 text-[#CBB26B]">Perfil offline local.</p>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <input
                   value={offlineNickname}
                   onChange={(event) => setOfflineNickname(event.target.value)}
                   placeholder="Digite seu nickname"
-                  className="flex-1 rounded-2xl border border-[#C7A24A]/14 bg-[#100D09] px-4 py-3 text-sm text-[#F6F0E1] outline-none placeholder:text-[#7F6D48]"
+                  className="flex-1 rounded-lg border border-[#C9A24E]/14 bg-[#080808] px-4 py-3 text-sm text-[#F7E8C3] outline-none placeholder:text-[#8A7135]"
                 />
                 <Button variant="secondary" onClick={() => void handleOfflineLogin()} disabled={!offlineNickname.trim() || busyAction === "login"}>
                   Entrar offline
@@ -722,17 +752,18 @@ export function App() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden text-[#F6F0E1]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(199,162,74,0.18),transparent_26%),linear-gradient(180deg,#0E0B08_0%,#090806_48%,#050402_100%)]" />
-      <div className="absolute inset-0 bg-noir-grid bg-[size:48px_48px] opacity-[0.08]" />
+    <div className="noir-app-shell relative min-h-screen overflow-hidden text-[#F7E8C3]">
+      <div className="noir-stage absolute inset-0" />
+      <div className="absolute inset-0 bg-noir-grid bg-[size:48px_48px] opacity-[0.07]" />
+      <div className="noir-scanline absolute inset-0" />
 
       <div className="relative z-10 flex min-h-screen flex-col px-5 py-5 md:px-8 md:py-7">
-        <header className="drag-region flex items-center justify-between rounded-[28px] border border-[#C7A24A]/12 bg-[rgba(16,13,9,0.78)] px-5 py-4 backdrop-blur-xl">
+        <header className="drag-region mx-auto flex w-full max-w-[1440px] items-center justify-between rounded-lg border border-[#C9A24E]/12 bg-[rgba(8,8,8,0.82)] px-5 py-4 shadow-card backdrop-blur-xl">
           <div className="flex items-center gap-4">
-            <img src={logoMark} alt="NOIR" className="h-14 w-14 rounded-2xl border border-[#C7A24A]/14 bg-[#0E0B08] object-cover p-1" />
+            <img src={logoMark} alt="NOIR" className="h-14 w-14 rounded-lg border border-[#C9A24E]/14 bg-[#0E0B08] object-cover p-1" />
             <div>
               <img src={wordmark} alt="NOIR Launcher" className="h-10 w-auto max-w-[240px] object-contain" />
-              <p className="mt-1 text-[11px] uppercase tracking-[0.3em] text-[#B49A66]">{snapshot.config.branding.tagline}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.3em] text-[#B89A55]">{snapshot.config.branding.tagline}</p>
             </div>
           </div>
 
@@ -746,14 +777,14 @@ export function App() {
           </div>
         </header>
 
-        <main className="relative mt-6 grid flex-1 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+        <main className="relative mx-auto mt-6 grid w-full max-w-[1440px] flex-1 gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
           <aside className="space-y-6">
             <Panel className="p-5">
               <div className="flex items-center gap-4">
-                <img src={logoMark} alt="NOIR" className="h-16 w-16 rounded-2xl border border-[#C7A24A]/16 object-cover p-1" />
+                <img src={logoMark} alt="NOIR" className="h-16 w-16 rounded-lg border border-[#C9A24E]/16 object-cover p-1" />
                 <div>
-                  <div className="text-[10px] uppercase tracking-[0.24em] text-[#B49A66]">Launcher</div>
-                  <div className="mt-2 text-xl font-semibold text-[#F6F0E1]">{snapshot.config.branding.productName}</div>
+                  <div className="text-[10px] uppercase tracking-[0.24em] text-[#B89A55]">Launcher</div>
+                  <div className="mt-2 text-xl font-semibold text-[#F7E8C3]">{snapshot.config.branding.productName}</div>
                 </div>
               </div>
 
@@ -768,10 +799,10 @@ export function App() {
                       }
                       setActiveScreen(screen.id);
                     }}
-                    className={`rounded-2xl px-4 py-3 text-left text-sm font-semibold uppercase tracking-[0.24em] transition ${
+                    className={`rounded-lg px-4 py-3 text-left text-sm font-semibold uppercase tracking-[0.24em] transition ${
                       visibleScreen === screen.id
-                        ? "bg-[linear-gradient(135deg,rgba(199,162,74,1),rgba(142,106,34,0.96))] text-[#090806]"
-                        : "border border-[#C7A24A]/12 bg-[#16110B] text-[#D5C39A] hover:border-[#C7A24A]/26"
+                        ? "bg-[linear-gradient(135deg,#E8C472_0%,#B98A35_52%,#6B521F_100%)] text-[#090709] shadow-glow"
+                        : "border border-[#C9A24E]/12 bg-[#0C0C0C] text-[#CBB26B] hover:border-[#C9A24E]/30 hover:bg-[#19150B]"
                     }`}
                   >
                     {screen.label}
@@ -791,7 +822,7 @@ export function App() {
 
           <section className="min-w-0 space-y-4">
             {notice && (
-              <div className="rounded-[22px] border border-[#C7A24A]/18 bg-[#16110B] px-4 py-4 text-sm text-[#E9D8A6]">
+              <div className="animate-panel-in rounded-lg border border-[#C9A24E]/18 bg-[#0C0C0C] px-4 py-4 text-sm text-[#E8CB83] shadow-card">
                 {notice}
               </div>
             )}
